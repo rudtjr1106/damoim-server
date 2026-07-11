@@ -1,0 +1,9 @@
+# ── 로컬 개발 프로파일 ──
+# docker-compose로 띄운 PostgreSQL을 가리킨다. SQL 로그를 켜서 개발 편의를 높인다.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/damoim
+    username: postgres
+    password: dev
+  jpa:
+    show-sql: true

@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+build/
+# 래퍼 jar는 커밋해야 clone 후 ./gradlew 동작
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+
+# ── 시크릿 / 환경변수 (절대 커밋 금지) ──
+.env
+local.properties
+*.local.properties
+src/main/resources/application-secret.yml
+
+# Logs
+*.log

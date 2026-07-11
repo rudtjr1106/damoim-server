@@ -1,0 +1,22 @@
+# 로컬 개발용 PostgreSQL. `docker compose up -d`로 띄운다.
+# 앱을 실행하면 Flyway가 V1__init.sql을 이 빈 DB에 적용해 37개 테이블을 생성한다.
+services:
+  postgres:
+    image: postgres:16
+    container_name: damoim-postgres
+    environment:
+      POSTGRES_DB: damoim
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - damoim-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d damoim"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  damoim-pgdata:

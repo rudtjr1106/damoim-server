@@ -1,0 +1,10 @@
+# ── 운영(AWS 등) 프로파일 ──
+# 모든 접속정보는 환경변수/시크릿으로만 주입한다. 이 파일에 실제 값 절대 금지.
+# 실행: SPRING_PROFILES_ACTIVE=prod DB_URL=... DB_USERNAME=... DB_PASSWORD=... java -jar app.jar
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    show-sql: false
