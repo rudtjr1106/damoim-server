@@ -1,34 +1,63 @@
 package com.damoim.server.config
 
+import com.damoim.server.security.JwtAuthenticationFilter
+import com.damoim.server.security.JwtTokenProvider
+import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.http.HttpStatus
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.invoke
+import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.web.SecurityFilterChain
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
 
 /**
- * 개발용 임시 보안 설정 — 스캐폴딩 단계라 **모든 요청을 허용**한다.
- *
- * spring-boot-starter-security를 넣으면 기본값이 "모든 엔드포인트를 임의 비밀번호로 잠금"이라
- * /api/ping·/actuator/health까지 막힌다. 이를 풀어 개발을 진행할 수 있게 permitAll로 연다.
- *
- * TODO(인증 도입): 카카오 OAuth 서버측 검증 + JWT 필터를 붙일 때 이 설정을 교체한다.
- *   - 공개 엔드포인트(로그인, health)만 permitAll
- *   - 나머지는 authenticated + JwtAuthenticationFilter
+ * 무상태(JWT) 보안 설정.
+ * - 세션 미사용, CSRF/폼로그인/기본인증 비활성
+ * - 공개: 인증 엔드포인트·헬스체크만. 그 외 전부 인증 필요(deny-by-default)
+ * - JWT 필터가 Bearer 토큰을 검증해 SecurityContext 세팅
+ * - 미인증/권한없음은 JSON 401/403으로 응답(HTML 리다이렉트 없음)
  */
 @Configuration
 class SecurityConfig {
 
     @Bean
-    fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
+    fun securityFilterChain(http: HttpSecurity, tokenProvider: JwtTokenProvider): SecurityFilterChain {
+        val jwtFilter = JwtAuthenticationFilter(tokenProvider)
+
+        http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter::class.java)
+
         http {
-            csrf { disable() }                 // 무상태 REST API — CSRF 토큰 불필요
+            csrf { disable() }
             httpBasic { disable() }
             formLogin { disable() }
+            sessionManagement { sessionCreationPolicy = SessionCreationPolicy.STATELESS }
+
             authorizeHttpRequests {
-                authorize(anyRequest, permitAll)
+                authorize("/api/auth/**", permitAll)
+                authorize("/api/ping", permitAll)
+                authorize("/actuator/health", permitAll)
+                authorize("/actuator/health/**", permitAll)
+                authorize("/error", permitAll)
+                authorize(anyRequest, authenticated)
+            }
+
+            exceptionHandling {
+                authenticationEntryPoint = org.springframework.security.web.AuthenticationEntryPoint { _, res, _ ->
+                    writeJson(res, HttpStatus.UNAUTHORIZED, "인증이 필요합니다.")
+                }
+                accessDeniedHandler = org.springframework.security.web.access.AccessDeniedHandler { _, res, _ ->
+                    writeJson(res, HttpStatus.FORBIDDEN, "권한이 없습니다.")
+                }
             }
         }
         return http.build()
+    }
+
+    private fun writeJson(res: HttpServletResponse, status: HttpStatus, message: String) {
+        res.status = status.value()
+        res.contentType = "application/json;charset=UTF-8"
+        res.writer.write("""{"status":${status.value()},"message":"$message"}""")
     }
 }

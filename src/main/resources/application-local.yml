@@ -7,3 +7,7 @@ spring:
     password: dev
   jpa:
     show-sql: true
+
+# JWT 시크릿은 여기에 커밋하지 않는다(보안 리뷰).
+# 로컬에서 app.jwt.secret(JWT_SECRET)을 주입하지 않으면 JwtTokenProvider가 부팅 시
+# 임시 랜덤 키를 생성한다(재시작마다 기존 토큰 무효화 — 개발 편의용, 운영에선 절대 발생 안 함).
