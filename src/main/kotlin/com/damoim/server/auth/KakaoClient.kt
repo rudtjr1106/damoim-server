@@ -45,7 +45,7 @@ class KakaoClient(props: KakaoProperties) {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer $kakaoAccessToken")
                 .retrieve()
                 .onStatus({ it.is4xxClientError }) { _, _ ->
-                    throw UnauthorizedException("카카오 인증에 실패했습니다.")
+                    throw UnauthorizedException("카카오 인증에 실패했습니다.", "KAKAO_AUTH_FAILED")
                 }
                 .body(KakaoMeResponse::class.java)
         } catch (e: UnauthorizedException) {
@@ -54,7 +54,7 @@ class KakaoClient(props: KakaoProperties) {
             // 네트워크/5xx 등은 상위에서 502로 처리하도록 런타임 예외 전파(민감정보 미포함 메시지)
             throw KakaoUnavailableException("카카오 인증 서버에 연결할 수 없습니다.")
         }
-        val id = res?.id ?: throw UnauthorizedException("카카오 인증에 실패했습니다.")
+        val id = res?.id ?: throw UnauthorizedException("카카오 인증에 실패했습니다.", "KAKAO_AUTH_FAILED")
         return KakaoUserInfo(
             kakaoUserId = id.toString(),
             nickname = res.kakaoAccount?.profile?.nickname ?: res.properties?.nickname,

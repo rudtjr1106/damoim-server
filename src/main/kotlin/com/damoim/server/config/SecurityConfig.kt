@@ -45,19 +45,20 @@ class SecurityConfig {
 
             exceptionHandling {
                 authenticationEntryPoint = org.springframework.security.web.AuthenticationEntryPoint { _, res, _ ->
-                    writeJson(res, HttpStatus.UNAUTHORIZED, "인증이 필요합니다.")
+                    writeEnvelope(res, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.")
                 }
                 accessDeniedHandler = org.springframework.security.web.access.AccessDeniedHandler { _, res, _ ->
-                    writeJson(res, HttpStatus.FORBIDDEN, "권한이 없습니다.")
+                    writeEnvelope(res, HttpStatus.FORBIDDEN, "FORBIDDEN", "권한이 없습니다.")
                 }
             }
         }
         return http.build()
     }
 
-    private fun writeJson(res: HttpServletResponse, status: HttpStatus, message: String) {
+    /** 필터 단계 응답은 메시지 컨버터를 안 타므로 공통 봉투 JSON을 직접 쓴다. */
+    private fun writeEnvelope(res: HttpServletResponse, status: HttpStatus, code: String, message: String) {
         res.status = status.value()
         res.contentType = "application/json;charset=UTF-8"
-        res.writer.write("""{"status":${status.value()},"message":"$message"}""")
+        res.writer.write("""{"success":false,"data":null,"error":{"code":"$code","message":"$message"}}""")
     }
 }

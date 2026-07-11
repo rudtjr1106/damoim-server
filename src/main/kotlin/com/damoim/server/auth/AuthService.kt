@@ -66,29 +66,30 @@ class AuthService(
     fun refresh(rawRefreshToken: String): TokenResponse {
         val hash = RandomTokens.sha256(rawRefreshToken)
         val stored = refreshTokenRepository.findByTokenHash(hash)
-            ?: throw UnauthorizedException("유효하지 않은 토큰입니다.")
+            ?: throw UnauthorizedException("유효하지 않은 토큰입니다.", "INVALID_REFRESH_TOKEN")
         val now = Instant.now()
 
         // 이미 폐기된 토큰 재제시 = 재사용(탈취 정황) → 별도 tx로 전 세션 즉시 폐기(현 tx 롤백에도 커밋).
         if (stored.revokedAt != null) {
             sessionRevoker.revokeAllSessions(stored.userId, now)
             log.warn("Refresh token reuse detected for userId={} — revoked all sessions", stored.userId)
-            throw UnauthorizedException("유효하지 않은 토큰입니다.")
+            throw UnauthorizedException("유효하지 않은 토큰입니다.", "INVALID_REFRESH_TOKEN")
         }
         if (stored.expiresAt.isBefore(now)) {
-            throw UnauthorizedException("만료된 토큰입니다.")
+            throw UnauthorizedException("만료된 토큰입니다.", "EXPIRED_REFRESH_TOKEN")
         }
         // 원자적 회전: 활성일 때만 폐기 성공. 0이면 동시 요청이 이미 회전 → 재사용으로 간주.
         if (refreshTokenRepository.revokeIfActive(stored.id, now) == 0) {
             sessionRevoker.revokeAllSessions(stored.userId, now)
             log.warn("Concurrent/reused refresh for userId={} — revoked all sessions", stored.userId)
-            throw UnauthorizedException("유효하지 않은 토큰입니다.")
+            throw UnauthorizedException("유효하지 않은 토큰입니다.", "INVALID_REFRESH_TOKEN")
         }
 
-        val user = userRepository.findById(stored.userId).orElseThrow { UnauthorizedException() }
+        val user = userRepository.findById(stored.userId)
+            .orElseThrow { UnauthorizedException("유효하지 않은 토큰입니다.", "INVALID_REFRESH_TOKEN") }
         if (user.status != UserStatus.ACTIVE) {
             sessionRevoker.revokeAllSessions(user.id, now)
-            throw UnauthorizedException("이용할 수 없는 계정입니다.")
+            requireActive(user)   // 정지/탈퇴 → 403 SUSPENDED_ACCOUNT / WITHDRAWN_ACCOUNT
         }
         return issueTokens(user)
     }
@@ -108,8 +109,8 @@ class AuthService(
     private fun requireActive(user: User) {
         when (user.status) {
             UserStatus.ACTIVE -> return
-            UserStatus.SUSPENDED -> throw ForbiddenException("정지된 계정입니다.")
-            UserStatus.WITHDRAWN -> throw ForbiddenException("탈퇴한 계정입니다.")
+            UserStatus.SUSPENDED -> throw ForbiddenException("정지된 계정입니다.", "SUSPENDED_ACCOUNT")
+            UserStatus.WITHDRAWN -> throw ForbiddenException("탈퇴한 계정입니다.", "WITHDRAWN_ACCOUNT")
         }
     }
 
