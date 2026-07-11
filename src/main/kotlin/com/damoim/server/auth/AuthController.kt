@@ -1,11 +1,9 @@
 package com.damoim.server.auth
 
 import jakarta.validation.Valid
-import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
@@ -22,9 +20,8 @@ class AuthController(private val authService: AuthService) {
     fun refresh(@Valid @RequestBody req: RefreshRequest): TokenResponse =
         authService.refresh(req.refreshToken)
 
-    /** 로그아웃(리프레시 토큰 폐기). */
+    /** 로그아웃(리프레시 토큰 폐기). 응답은 공통 봉투 {success:true, data:null}. */
     @PostMapping("/logout")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
     fun logout(@Valid @RequestBody req: LogoutRequest) =
         authService.logout(req.refreshToken)
 }
