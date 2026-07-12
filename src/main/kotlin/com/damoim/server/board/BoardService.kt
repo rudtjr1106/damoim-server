@@ -4,16 +4,27 @@ import com.damoim.server.club.MembershipService
 import com.damoim.server.common.BadRequestException
 import com.damoim.server.common.ForbiddenException
 import com.damoim.server.common.NotFoundException
+import com.damoim.server.common.SizeLabels
 import com.damoim.server.common.TimeLabels
 import com.damoim.server.domain.entity.BoardPost
 import com.damoim.server.domain.entity.ClubMember
 import com.damoim.server.domain.entity.Comment
+import com.damoim.server.domain.entity.Poll
+import com.damoim.server.domain.entity.PollOption
+import com.damoim.server.domain.entity.PostAttachment
+import com.damoim.server.domain.entity.Recruit
+import com.damoim.server.domain.enums.AttachmentType
 import com.damoim.server.domain.enums.BoardCategory
 import com.damoim.server.domain.enums.MemberRole
+import com.damoim.server.domain.enums.RecruitStatus
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.ClubMemberRepository
 import com.damoim.server.domain.repository.CohortRepository
 import com.damoim.server.domain.repository.CommentRepository
+import com.damoim.server.domain.repository.PollOptionRepository
+import com.damoim.server.domain.repository.PollRepository
+import com.damoim.server.domain.repository.PostAttachmentRepository
+import com.damoim.server.domain.repository.RecruitRepository
 import com.damoim.server.domain.repository.UserRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
@@ -24,6 +35,10 @@ import java.time.Instant
 class BoardService(
     private val boardPostRepository: BoardPostRepository,
     private val commentRepository: CommentRepository,
+    private val postAttachmentRepository: PostAttachmentRepository,
+    private val pollRepository: PollRepository,
+    private val pollOptionRepository: PollOptionRepository,
+    private val recruitRepository: RecruitRepository,
     private val clubMemberRepository: ClubMemberRepository,
     private val cohortRepository: CohortRepository,
     private val userRepository: UserRepository,
@@ -37,9 +52,10 @@ class BoardService(
         val feed = boardPostRepository.findRecentNonPinned(clubId, PageRequest.of(0, FEED_LIMIT))
         val authors = resolveAuthors(clubId, (pinned + feed).mapNotNull { it.authorId })
         val counts = commentCounts(pinned + feed)
+        val thumbs = thumbnailPostIds(pinned + feed)
         return BoardHomeResponse(
-            pinned = pinned.map { toSummary(it, authors, counts) },
-            feed = feed.map { toSummary(it, authors, counts) },
+            pinned = pinned.map { toSummary(it, authors, counts, thumbs) },
+            feed = feed.map { toSummary(it, authors, counts, thumbs) },
         )
     }
 
@@ -50,7 +66,8 @@ class BoardService(
         val posts = boardPostRepository.findFeed(clubId, cat, PageRequest.of(0, LIST_LIMIT))
         val authors = resolveAuthors(clubId, posts.mapNotNull { it.authorId })
         val counts = commentCounts(posts)
-        return posts.map { toSummary(it, authors, counts) }
+        val thumbs = thumbnailPostIds(posts)
+        return posts.map { toSummary(it, authors, counts, thumbs) }
     }
 
     @Transactional(readOnly = true)
@@ -79,7 +96,47 @@ class BoardService(
             isPinned = post.isPinned,
             isAuthorLeader = authorInfo.isLeader,
             isMine = post.authorId == userId,
+            attachments = postAttachmentRepository.findByPostIdOrderByPosition(postId).map { toAttachment(it) },
+            poll = pollRepository.findByPostId(postId)?.let { toPoll(it) },
+            recruit = recruitRepository.findByPostId(postId)?.let { toRecruit(it) },
             comments = comments.map { toComment(it, post.authorId, commentAuthorNames) },
+        )
+    }
+
+    private fun toAttachment(a: PostAttachment) = AttachmentResponse(
+        type = a.type.name,
+        imageLabel = a.imageLabel,
+        fileName = a.fileName,
+        fileSize = a.sizeBytes?.let { SizeLabels.of(it) },
+        linkTitle = a.linkTitle,
+        linkDomain = a.linkDomain,
+    )
+
+    private fun toPoll(poll: Poll): PollResponse {
+        val options = pollOptionRepository.findByPollIdOrderByPosition(poll.id)
+        return PollResponse(
+            anonymous = poll.anonymous,
+            multiSelect = poll.multiSelect,
+            deadlineLabel = poll.deadline?.let { TimeLabels.deadlineLabel(it) },
+            dday = poll.deadline?.let { TimeLabels.dday(it) },
+            totalVotes = 0,          // C2 poll_votes 집계
+            myVotes = emptyList(),   // C2
+            options = options.map { PollOptionResponse(it.position, it.label, 0, 0) },
+        )
+    }
+
+    private fun toRecruit(r: Recruit): RecruitResponse {
+        val current = 0             // C2 recruit_applications 집계
+        return RecruitResponse(
+            status = r.status.name,
+            capacity = r.capacity,
+            current = current,
+            remaining = (r.capacity - current).coerceAtLeast(0),
+            percent = if (r.capacity == 0) 0 else (current * 100 / r.capacity),
+            deadlineLabel = r.deadline?.let { TimeLabels.deadlineLabel(it) },
+            dday = r.deadline?.let { TimeLabels.dday(it) },
+            method = r.method,
+            appliedByMe = false,     // C2
         )
     }
 
@@ -102,7 +159,71 @@ class BoardService(
                 isPinned = pinned
             },
         )
+        persistRichContent(post.id, req)
         return detail(userId, post.id)
+    }
+
+    /** 첨부·투표·모집을 저장(작성 시). 편집은 텍스트만 — 리치 콘텐츠 편집은 후순위. */
+    private fun persistRichContent(postId: Long, req: CreatePostRequest) {
+        req.attachments.forEachIndexed { i, a ->
+            val type = AttachmentType.valueOf(a.type)
+            postAttachmentRepository.save(
+                PostAttachment().apply {
+                    this.postId = postId
+                    this.type = type
+                    position = i
+                    when (type) {
+                        AttachmentType.IMAGE ->
+                            imageLabel = a.imageLabel?.takeIf { it.isNotBlank() }
+                                ?: throw BadRequestException("이미지 라벨이 필요합니다.")
+                        AttachmentType.FILE_DOC -> {
+                            fileName = a.fileName?.takeIf { it.isNotBlank() }
+                                ?: throw BadRequestException("파일명이 필요합니다.")
+                            sizeBytes = a.fileSizeBytes ?: throw BadRequestException("파일 크기가 필요합니다.")
+                        }
+                        AttachmentType.LINK -> {
+                            linkTitle = a.linkTitle?.takeIf { it.isNotBlank() }
+                                ?: throw BadRequestException("링크 제목이 필요합니다.")
+                            linkDomain = a.linkDomain?.takeIf { it.isNotBlank() }
+                                ?: throw BadRequestException("링크 도메인이 필요합니다.")
+                        }
+                    }
+                },
+            )
+        }
+        req.poll?.let { p ->
+            val opts = p.options.map { it.trim() }.filter { it.isNotEmpty() }
+            if (opts.size < 2) throw BadRequestException("투표 항목은 2개 이상이어야 합니다.")
+            if (opts.any { it.length > 200 }) throw BadRequestException("투표 항목은 200자 이하여야 합니다.")
+            val poll = pollRepository.save(
+                Poll().apply {
+                    this.postId = postId
+                    anonymous = p.anonymous
+                    multiSelect = p.multiSelect
+                    deadline = p.deadline
+                },
+            )
+            opts.forEachIndexed { i, label ->
+                pollOptionRepository.save(
+                    PollOption().apply {
+                        pollId = poll.id
+                        this.label = label
+                        position = i
+                    },
+                )
+            }
+        }
+        req.recruit?.let { r ->
+            recruitRepository.save(
+                Recruit().apply {
+                    this.postId = postId
+                    status = RecruitStatus.OPEN
+                    capacity = r.capacity
+                    deadline = r.deadline
+                    method = r.method?.takeIf { it.isNotBlank() }
+                },
+            )
+        }
     }
 
     @Transactional
@@ -170,7 +291,12 @@ class BoardService(
             .associate { (it[0] as Long) to (it[1] as Long).toInt() }
     }
 
-    private fun toSummary(p: BoardPost, authors: Map<Long, AuthorInfo>, counts: Map<Long, Int>): PostSummaryResponse {
+    private fun toSummary(
+        p: BoardPost,
+        authors: Map<Long, AuthorInfo>,
+        counts: Map<Long, Int>,
+        thumbs: Set<Long>,
+    ): PostSummaryResponse {
         val a = p.authorId?.let { authors[it] } ?: DELETED_AUTHOR
         return PostSummaryResponse(
             id = p.id,
@@ -185,9 +311,14 @@ class BoardService(
             commentCount = counts[p.id] ?: 0,
             isPinned = p.isPinned,
             isAuthorLeader = a.isLeader,
-            hasThumbnail = false,
+            hasThumbnail = p.id in thumbs,
             readRate = null,
         )
+    }
+
+    private fun thumbnailPostIds(posts: List<BoardPost>): Set<Long> {
+        if (posts.isEmpty()) return emptySet()
+        return postAttachmentRepository.findPostIdsWithType(posts.map { it.id }, AttachmentType.IMAGE).toSet()
     }
 
     private fun toComment(c: Comment, postAuthorId: Long?, names: Map<Long, String>): CommentResponse {
