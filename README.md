@@ -23,6 +23,24 @@ curl http://localhost:8080/actuator/health      # {"status":"UP"}
 docker exec damoim-postgres psql -U postgres -d damoim -c "\dt"   # 37 rows
 ```
 
+## API 문서 (Swagger UI / OpenAPI)
+
+서버 실행 후:
+
+- **Swagger UI**: <http://localhost:8080/swagger-ui.html> — 브라우저에서 전 엔드포인트(A~G) 탐색·시험 호출
+- **OpenAPI 스펙(JSON)**: <http://localhost:8080/v3/api-docs>
+
+인증이 필요한 요청은 우측 상단 **Authorize**에 JWT 액세스 토큰(`POST /api/auth/kakao` 응답)을 넣으면 자동 적용된다.
+모든 응답은 공통 봉투 `{ success, data, error }`로 감싸지며, Swagger에 표기된 스키마는 `data` 필드의 내용이다.
+
+> 운영에서 문서 노출을 끄려면 `application-prod.yml`에 `springdoc.api-docs.enabled: false`, `springdoc.swagger-ui.enabled: false`를 추가한다.
+
+## 구현 범위 (A~G)
+
+CMP 앱 화면 그룹 A~G 전체의 서버 엔드포인트 구현 완료(각 그룹 적대적 보안 리뷰 반영):
+A 인증(카카오·JWT) · B 동아리·가입 · C 게시판 · D 자료실(S3) · E 회원·기수·프로필·멀티동아리 ·
+F 일정·이벤트 · G 설정·구독·권한·차단·알림. 전 엔드포인트는 Swagger UI에서 확인.
+
 ## 설정 (환경변수 주입 — 코드는 로컬/운영 무수정)
 
 | 변수 | 기본값(로컬) | 설명 |

@@ -40,6 +40,11 @@ class SecurityConfig {
                 authorize("/actuator/health", permitAll)
                 authorize("/actuator/health/**", permitAll)
                 authorize("/error", permitAll)
+                // API 문서(OpenAPI/Swagger UI) — 공개
+                authorize("/swagger-ui.html", permitAll)
+                authorize("/swagger-ui/**", permitAll)
+                authorize("/v3/api-docs", permitAll)
+                authorize("/v3/api-docs/**", permitAll)
                 authorize(anyRequest, authenticated)
             }
 
