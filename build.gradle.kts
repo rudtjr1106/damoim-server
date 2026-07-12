@@ -37,6 +37,10 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 
+    // ── 파일 스토리지 (S3, presigned URL) ──
+    implementation(platform("software.amazon.awssdk:bom:2.47.5"))
+    implementation("software.amazon.awssdk:s3")
+
     // ── DB · 마이그레이션 ──
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")   // Flyway 10+ PostgreSQL 지원
