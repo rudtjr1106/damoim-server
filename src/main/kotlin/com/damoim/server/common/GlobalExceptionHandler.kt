@@ -3,12 +3,14 @@ package com.damoim.server.common
 import com.damoim.server.auth.KakaoUnavailableException
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import software.amazon.awssdk.core.exception.SdkException
 
 /** 예외를 공통 봉투(ApiResponse) 실패 형태로 변환. 민감정보·스택은 노출하지 않는다. */
@@ -33,6 +35,19 @@ class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException::class)
     fun handleUnreadable(e: HttpMessageNotReadableException): ResponseEntity<ApiResponse<Nothing>> =
         ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail("BAD_REQUEST", "요청 본문이 올바르지 않습니다."))
+
+    /** path/쿼리 변수 타입 불일치(예: /members/abc, Long 범위 초과) → 500 아닌 400. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException::class)
+    fun handleTypeMismatch(e: MethodArgumentTypeMismatchException): ResponseEntity<ApiResponse<Nothing>> =
+        ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail("BAD_REQUEST", "요청 경로가 올바르지 않습니다."))
+
+    /** 동시 삭제/수정 경쟁(낙관적 락 실패) → 500 대신 409. 데이터 손상 없이 재시도 유도. */
+    @ExceptionHandler(OptimisticLockingFailureException::class)
+    fun handleOptimisticLock(e: OptimisticLockingFailureException): ResponseEntity<ApiResponse<Nothing>> {
+        log.warn("Optimistic locking failure: {}", e.message)
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(ApiResponse.fail("CONFLICT", "이미 처리되었거나 중복된 요청입니다."))
+    }
 
     /** 동시성 유니크 위반(중복 신청·승인 더블클릭 등) → 500 대신 409. 정상 운영 중 경쟁조건 흡수. */
     @ExceptionHandler(DataIntegrityViolationException::class)
