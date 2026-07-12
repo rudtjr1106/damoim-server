@@ -45,4 +45,22 @@ interface BoardPostRepository : JpaRepository<BoardPost, Long> {
             "order by p.createdAt desc",
     )
     fun findPinned(@Param("clubId") clubId: Long, pageable: Pageable): List<BoardPost>
+
+    /** 검색 — 제목/본문/작성자(authorIds) 일치. authorIds는 닉네임 매칭 결과(빈 리스트 금지, 서비스에서 -1 보정). */
+    @Query(
+        """
+        select p from BoardPost p
+        where p.clubId = :clubId and p.deletedAt is null
+          and (lower(p.title) like lower(concat('%', :q, '%')) escape '!'
+               or lower(p.content) like lower(concat('%', :q, '%')) escape '!'
+               or p.authorId in :authorIds)
+        order by p.createdAt desc
+        """,
+    )
+    fun searchInClub(
+        @Param("clubId") clubId: Long,
+        @Param("q") q: String,
+        @Param("authorIds") authorIds: Collection<Long>,
+        pageable: Pageable,
+    ): List<BoardPost>
 }
