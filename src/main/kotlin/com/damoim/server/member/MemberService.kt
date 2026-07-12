@@ -9,6 +9,7 @@ import com.damoim.server.domain.entity.ClubMember
 import com.damoim.server.domain.enums.ApplicantStatus
 import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.MemberStatus
+import com.damoim.server.domain.repository.AdminProfileRepository
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.ClubMemberRepository
 import com.damoim.server.domain.repository.CohortRepository
@@ -34,6 +35,7 @@ class MemberService(
     private val boardPostRepository: BoardPostRepository,
     private val commentRepository: CommentRepository,
     private val eventApplicationRepository: EventApplicationRepository,
+    private val adminProfileRepository: AdminProfileRepository,
 ) {
     /** 16/17 명부 — 활동+휴면 전원. LEADER→STAFF→MEMBER, 가입순 정렬. */
     @Transactional(readOnly = true)
@@ -119,6 +121,10 @@ class MemberService(
         }
         member.memberRole = target
         clubMemberRepository.save(member)
+        // 일반 회원으로 강등 시 운영진 프로필/권한 정리(불변식: admin_profile ⟺ STAFF, 권한 부활 방지)
+        if (target == MemberRole.MEMBER) {
+            adminProfileRepository.findByClubMemberId(member.id)?.let { adminProfileRepository.delete(it) }
+        }
     }
 
     /** 43 내보내기(LEADER). 본인·동아리장 제외. 명부 행 삭제 + 내보낸 회원 활성 동아리 재지정. */
@@ -160,6 +166,8 @@ class MemberService(
         leader.memberRole = MemberRole.STAFF
         clubMemberRepository.save(target)
         clubMemberRepository.save(leader)
+        // 새 동아리장은 운영진 프로필이 필요 없다(있으면 제거 — 재이양 시 권한 부활 방지)
+        adminProfileRepository.findByClubMemberId(target.id)?.let { adminProfileRepository.delete(it) }
     }
 
     /** 대상 회원이 요청자 활성 동아리 소속인지 확인(IDOR 차단). 아니면 존재 노출 없이 404. */
