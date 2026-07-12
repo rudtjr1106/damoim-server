@@ -9,8 +9,8 @@ import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
 import software.amazon.awssdk.services.s3.model.GetObjectRequest
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
+import software.amazon.awssdk.services.s3.model.S3Exception
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest
@@ -46,12 +46,16 @@ class S3StorageService(
 
     override val verifiesSize = true
 
-    /** HeadObject로 실제 업로드 크기 확인. 오브젝트 없으면 null(업로드 미완료). */
+    /**
+     * HeadObject로 실제 업로드 크기 확인. 오브젝트 없으면(404) null(업로드 미완료).
+     * HeadObject는 미존재 시에도 NoSuchKeyException이 아닌 일반 S3Exception(404)을 던지므로 상태코드로 판별한다.
+     * 그 외(403 권한 등)는 상위로 전파 → SdkException 핸들러가 502로 매핑.
+     */
     override fun objectSizeOrNull(key: String): Long? =
         try {
             s3Client.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build()).contentLength()
-        } catch (e: NoSuchKeyException) {
-            null
+        } catch (e: S3Exception) {
+            if (e.statusCode() == 404) null else throw e
         }
 
     override fun presignUpload(key: String, contentType: String?): PresignedUpload {
