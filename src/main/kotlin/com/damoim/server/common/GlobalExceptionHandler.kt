@@ -2,6 +2,7 @@ package com.damoim.server.common
 
 import com.damoim.server.auth.KakaoUnavailableException
 import org.slf4j.LoggerFactory
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
@@ -31,6 +32,14 @@ class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException::class)
     fun handleUnreadable(e: HttpMessageNotReadableException): ResponseEntity<ApiResponse<Nothing>> =
         ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail("BAD_REQUEST", "요청 본문이 올바르지 않습니다."))
+
+    /** 동시성 유니크 위반(중복 신청·승인 더블클릭 등) → 500 대신 409. 정상 운영 중 경쟁조건 흡수. */
+    @ExceptionHandler(DataIntegrityViolationException::class)
+    fun handleDataIntegrity(e: DataIntegrityViolationException): ResponseEntity<ApiResponse<Nothing>> {
+        log.warn("Data integrity violation: {}", e.mostSpecificCause.message)
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(ApiResponse.fail("CONFLICT", "이미 처리되었거나 중복된 요청입니다."))
+    }
 
     @ExceptionHandler(KakaoUnavailableException::class)
     fun handleKakaoDown(e: KakaoUnavailableException): ResponseEntity<ApiResponse<Nothing>> =
