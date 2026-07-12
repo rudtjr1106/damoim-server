@@ -48,3 +48,10 @@ app:
     issuer: damoim
   kakao:
     user-info-url: ${KAKAO_USER_INFO_URL:https://kapi.kakao.com/v2/user/me}
+  storage:
+    provider: ${STORAGE_PROVIDER:local}                  # local(개발 스텁) | s3
+    quota-bytes: ${STORAGE_QUOTA_BYTES:5368709120}       # 동아리당 5GB
+    presign-expiry-seconds: ${STORAGE_PRESIGN_EXPIRY:600}
+    s3:
+      bucket: ${S3_BUCKET:}
+      region: ${S3_REGION:ap-northeast-2}
