@@ -19,6 +19,8 @@ build/
 local.properties
 *.local.properties
 src/main/resources/application-secret.yml
+# 로컬 실행 스크립트(시크릿 포함)
+run-local-*.sh
 
 # Logs
 *.log
