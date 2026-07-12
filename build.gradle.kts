@@ -28,6 +28,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-actuator")   // /actuator/health (AWS 헬스체크)
 
+    // ── API 문서 (OpenAPI 3 + Swagger UI: /swagger-ui.html, /v3/api-docs) ──
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
+
     // ── Kotlin 지원 ──
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
