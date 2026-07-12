@@ -43,7 +43,8 @@ class AuthService(
         } else {
             val created = userRepository.save(
                 User().apply {
-                    nickname = info.nickname?.takeIf { it.isNotBlank() } ?: "회원"
+                    // 카카오가 닉네임을 주면 사용, 없으면 빈칸(클라 프로필 설정에서 직접 입력받는다).
+                    nickname = info.nickname?.takeIf { it.isNotBlank() } ?: ""
                     email = info.email
                     profileImageUrl = info.profileImageUrl
                     // profileCompletedAt = null → needsProfileSetup = true (프로필 설정 유도)
