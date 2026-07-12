@@ -21,7 +21,15 @@ class PostAttachment {
     var type: AttachmentType = AttachmentType.IMAGE
 
     @Column(name = "image_label", nullable = true, length = 200)
-    var imageLabel: String? = null
+    var imageLabel: String? = null                       // 이제 선택(캡션). 실파일은 storageKey.
+
+    /** IMAGE/FILE_DOC의 실제 S3 오브젝트 키. 읽을 때 presigned URL로 서빙. */
+    @Column(name = "storage_key", nullable = true, columnDefinition = "text")
+    var storageKey: String? = null
+
+    /** LINK 첨부의 전체 URL(클릭 시 웹 이동). */
+    @Column(name = "link_url", nullable = true, columnDefinition = "text")
+    var linkUrl: String? = null
 
     @Column(name = "file_name", nullable = true, length = 255)
     var fileName: String? = null

@@ -23,6 +23,10 @@ class User {
     @Column(name = "profile_image_url", nullable = true, columnDefinition = "text")
     var profileImageUrl: String? = null
 
+    /** 앱에서 올린 프로필 사진의 S3 키. 있으면 응답 URL은 presigned view로 파생(외부 카카오 URL은 위 필드). */
+    @Column(name = "profile_image_key", nullable = true, columnDefinition = "text")
+    var profileImageKey: String? = null
+
     @Column(name = "contact", nullable = true, length = 30)
     var contact: String? = null
 

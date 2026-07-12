@@ -26,6 +26,10 @@ object RateLimitPolicy {
         RateLimitRule("join", HttpMethod.POST, "/api/clubs/join", RateKey.USER, 5),
         // 게시글 스팸 도배 방지
         RateLimitRule("post-create", HttpMethod.POST, "/api/board/posts", RateKey.USER, 10),
+        // 첨부 업로드 URL 발급 남용 방지(이미지/문서)
+        RateLimitRule("board-upload", HttpMethod.POST, "/api/board/upload-url", RateKey.USER, 30),
+        // 프로필 사진 업로드 URL 발급 남용 방지
+        RateLimitRule("profile-image", HttpMethod.POST, "/api/me/profile-image", RateKey.USER, 10),
         // 고비용 검색 폭주 방지
         RateLimitRule("search", HttpMethod.GET, "/api/board/search", RateKey.USER, 30),
         // 결제 활성화 중복/폭주 방지
