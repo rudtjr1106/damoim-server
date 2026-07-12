@@ -14,6 +14,7 @@ import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.ResourceFolder
 import com.damoim.server.domain.enums.ResourceVisibility
 import com.damoim.server.domain.repository.ClubMemberRepository
+import com.damoim.server.domain.repository.ClubRepository
 import com.damoim.server.domain.repository.ResourceCohortRepository
 import com.damoim.server.domain.repository.ResourceRepository
 import com.damoim.server.domain.repository.UserRepository
@@ -32,6 +33,7 @@ class ResourceService(
     private val resourceRepository: ResourceRepository,
     private val resourceCohortRepository: ResourceCohortRepository,
     private val clubMemberRepository: ClubMemberRepository,
+    private val clubRepository: ClubRepository,
     private val userRepository: UserRepository,
     private val storageService: StorageService,
     private val storageProperties: StorageProperties,
@@ -102,6 +104,9 @@ class ResourceService(
         } else {
             req.sizeBytes
         }
+        // 쿼터 임계구역 진입 — 동아리 행 락으로 sum→검사→insert 직렬화(동시 업로드 초과 차단).
+        // S3 HeadObject(네트워크) 이후에 락을 잡아 락 보유 시간을 최소화.
+        clubRepository.findByIdForUpdate(member.clubId)
         requireQuota(member.clubId, size)
         val visibility = parseVisibility(req.visibility)
         val resource = resourceRepository.save(

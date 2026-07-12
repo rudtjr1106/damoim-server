@@ -58,6 +58,7 @@ class BoardInteractionService(
         val post = loadPost(membership.currentMembership(userId), postId)
         val poll = pollRepository.findByPostId(post.id) ?: throw BadRequestException("투표가 없는 글입니다.")
         requireOpenPoll(poll)
+        pollRepository.findByIdForUpdate(poll.id)   // 이 투표의 표를 직렬화(단일선택 1인1표·동시토글 원자화)
         val option = pollOptionRepository.findByPollIdOrderByPosition(poll.id).getOrNull(optionIndex)
             ?: throw BadRequestException("옵션이 올바르지 않습니다.")
         if (poll.multiSelect) {
@@ -81,6 +82,7 @@ class BoardInteractionService(
         val post = loadPost(membership.currentMembership(userId), postId)
         val poll = pollRepository.findByPostId(post.id) ?: throw BadRequestException("투표가 없는 글입니다.")
         requireOpenPoll(poll)   // 마감된 투표는 회수도 불가(votePoll과 대칭)
+        pollRepository.findByIdForUpdate(poll.id)   // vote/clear 경쟁 직렬화
         pollVoteRepository.deleteByPollIdAndUserId(poll.id, userId)
         return aggregates.pollResponse(poll, userId)
     }
@@ -104,9 +106,16 @@ class BoardInteractionService(
         if (recruitApplicationRepository.existsByRecruitIdAndUserId(recruit.id, userId)) {
             throw ConflictException("이미 신청했습니다.", "ALREADY_APPLIED")
         }
+        // 정원 경쟁(TOCTOU) 차단 — 모집 행 락으로 count→검사→insert 직렬화
+        recruitRepository.findByIdForUpdate(recruit.id)
+        val current = recruitApplicationRepository.countByRecruitId(recruit.id).toInt()
+        if (current >= recruit.capacity) {
+            recruit.status = RecruitStatus.CLOSED
+            recruitRepository.save(recruit)
+            throw ConflictException("마감된 모집입니다.", "RECRUIT_CLOSED")
+        }
         recruitApplicationRepository.save(RecruitApplication().apply { recruitId = recruit.id; this.userId = userId })
-        // 정원 도달 시 자동 마감(경쟁 시 소폭 초과 가능 — 엄격 정원은 하드닝)
-        if (recruitApplicationRepository.countByRecruitId(recruit.id).toInt() >= recruit.capacity) {
+        if (current + 1 >= recruit.capacity) {   // 이 신청으로 정원 도달 → 자동 마감
             recruit.status = RecruitStatus.CLOSED
             recruitRepository.save(recruit)
         }
