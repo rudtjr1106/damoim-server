@@ -2,6 +2,7 @@ package com.damoim.server.common
 
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
@@ -56,4 +57,49 @@ object TimeLabels {
         return "${z.monthValue}.${"%02d".format(z.dayOfMonth)} ($dow) " +
             "${"%02d".format(z.hour)}:${"%02d".format(z.minute)}"
     }
+
+    // ── 일정/이벤트(F) 표시 라벨 — 클라 포맷과 1:1 일치 ──
+
+    private fun weekday(d: LocalDate): String = WEEKDAYS[d.dayOfWeek.value - 1]
+
+    /** "오전 10:00" / "오후 7:00" (12시간제). */
+    fun koreanTime(hour: Int, minute: Int): String {
+        val ampm = if (hour < 12) "오전" else "오후"
+        val h12 = (hour % 12).let { if (it == 0) 12 else it }
+        return "$ampm $h12:${"%02d".format(minute)}"
+    }
+
+    /** "6.12 (목)" */
+    fun shortDate(d: LocalDate): String = "${d.monthValue}.${d.dayOfMonth} (${weekday(d)})"
+
+    /** "8월 14일 (목)" */
+    fun midDate(d: LocalDate): String = "${d.monthValue}월 ${d.dayOfMonth}일 (${weekday(d)})"
+
+    /** "8월 14일 목요일" */
+    fun longDate(d: LocalDate): String = "${d.monthValue}월 ${d.dayOfMonth}일 ${weekday(d)}요일"
+
+    /** 오늘(KST) 기준 이벤트 D-day — "D-3" / "D-DAY" / "종료". (일정 시작일 기준) */
+    fun ddayFromDate(target: LocalDate, today: LocalDate = todayKst()): String {
+        val days = ChronoUnit.DAYS.between(today, target)
+        return when {
+            days > 0 -> "D-$days"
+            days == 0L -> "D-DAY"
+            else -> "종료"
+        }
+    }
+
+    /** deadline_at(Instant)에서 "6.12 (목) 오전 10:00" 파생(KST). */
+    fun deadlineDateTime(deadline: Instant): String {
+        val z = deadline.atZone(KST)
+        return "${shortDate(z.toLocalDate())} ${koreanTime(z.hour, z.minute)}"
+    }
+
+    fun todayKst(): LocalDate = Instant.now().atZone(KST).toLocalDate()
+
+    /** Instant → KST 달력 날짜. */
+    fun kstDate(t: Instant): LocalDate = t.atZone(KST).toLocalDate()
+
+    /** KST 기준 date+시각 → Instant(마감 시각 저장용). */
+    fun kstInstant(date: LocalDate, hour: Int, minute: Int): Instant =
+        date.atTime(hour, minute).atZone(KST).toInstant()
 }
