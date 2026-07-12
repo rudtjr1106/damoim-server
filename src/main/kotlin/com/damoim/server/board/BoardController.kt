@@ -36,6 +36,13 @@ class BoardController(private val boardService: BoardService) {
         @PathVariable id: Long,
     ): PostDetailResponse = boardService.detail(principal.userId, id)
 
+    /** 첨부 업로드 URL 발급(1단계) — presigned PUT. 클라가 S3에 직접 올린 뒤 storageKey를 첨부로 등록. */
+    @PostMapping("/upload-url")
+    fun uploadUrl(
+        @AuthenticationPrincipal principal: UserPrincipal,
+        @Valid @RequestBody req: BoardUploadUrlRequest,
+    ): BoardUploadUrlResponse = boardService.createUploadUrl(principal.userId, req)
+
     /** 작성(15). */
     @PostMapping("/posts")
     fun create(

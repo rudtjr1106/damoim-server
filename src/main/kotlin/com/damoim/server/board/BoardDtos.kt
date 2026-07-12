@@ -25,16 +25,41 @@ data class CreatePostRequest(
     @field:Valid val recruit: RecruitInput? = null,
 )
 
-/** 첨부 입력(다형 — type별 필드). 파일 크기는 클라가 바이트로 전달. */
+/**
+ * 첨부 입력(다형 — type별 필드).
+ * IMAGE/FILE_DOC은 사전에 presigned PUT으로 S3에 올린 [storageKey]를 전달(서버가 소유권·실크기 검증).
+ * LINK는 [linkUrl] 전체 URL(웹 이동용)을 전달.
+ */
 data class AttachmentInput(
     @field:Pattern(regexp = "IMAGE|FILE_DOC|LINK", message = "첨부 유형이 올바르지 않습니다.")
     val type: String,
-    @field:Size(max = 200) val imageLabel: String? = null,
-    @field:Size(max = 255) val fileName: String? = null,
+    @field:Size(max = 1024) val storageKey: String? = null,     // IMAGE/FILE_DOC — S3 오브젝트 키
+    @field:Size(max = 200) val imageLabel: String? = null,      // IMAGE 캡션(선택)
+    @field:Size(max = 255) val fileName: String? = null,        // FILE_DOC 파일명
     @field:Min(value = 1, message = "파일 크기가 올바르지 않습니다.")
-    val fileSizeBytes: Long? = null,
-    @field:Size(max = 300) val linkTitle: String? = null,
-    @field:Size(max = 255) val linkDomain: String? = null,
+    val fileSizeBytes: Long? = null,                            // FILE_DOC 클라 선언 크기(S3 실측으로 교정)
+    @field:Size(max = 300) val linkTitle: String? = null,       // LINK
+    @field:Size(max = 255) val linkDomain: String? = null,      // LINK
+    @field:Size(max = 2048) val linkUrl: String? = null,        // LINK 전체 URL
+)
+
+/** 게시판 첨부 업로드 URL 요청(1단계). kind=IMAGE|FILE_DOC. */
+data class BoardUploadUrlRequest(
+    @field:NotBlank(message = "파일명은 필수입니다.")
+    @field:Size(max = 255)
+    val fileName: String,
+    @field:Size(max = 255) val contentType: String? = null,
+    @field:Min(value = 1, message = "파일 크기가 올바르지 않습니다.")
+    val sizeBytes: Long,
+    @field:Pattern(regexp = "IMAGE|FILE_DOC", message = "업로드 유형이 올바르지 않습니다.")
+    val kind: String,
+)
+
+/** 업로드 URL 응답 — 클라가 이 URL로 S3에 직접 PUT 후, storageKey를 첨부로 등록. */
+data class BoardUploadUrlResponse(
+    val uploadUrl: String,
+    val storageKey: String,
+    val expiresInSeconds: Long,
 )
 
 /** 투표 입력(옵션 2~10개). deadline은 ISO-8601, 라벨/D-day는 서버가 파생. */
@@ -82,6 +107,7 @@ data class PostSummaryResponse(
     val isPinned: Boolean,
     val isAuthorLeader: Boolean,
     val hasThumbnail: Boolean,
+    val thumbnailUrl: String?,          // 첫 이미지 첨부의 presigned view URL(없으면 null)
     val readRate: Int?,
 )
 
@@ -110,14 +136,17 @@ data class PostDetailResponse(
     val comments: List<CommentResponse>,
 )
 
-/** 첨부 응답(다형 flat). fileSize는 sizeBytes 파생 라벨. */
+/** 첨부 응답(다형 flat). imageUrl/fileUrl은 읽을 때마다 발급되는 presigned URL. */
 data class AttachmentResponse(
     val type: String,
-    val imageLabel: String?,
+    val imageUrl: String?,      // IMAGE — presigned view URL(인라인 렌더)
+    val imageLabel: String?,    // IMAGE 캡션(선택)
     val fileName: String?,
-    val fileSize: String?,
+    val fileSize: String?,      // sizeBytes 파생 라벨
+    val fileUrl: String?,       // FILE_DOC — presigned download URL
     val linkTitle: String?,
     val linkDomain: String?,
+    val linkUrl: String?,       // LINK 전체 URL(웹 이동)
 )
 
 /** 투표 표시. C1b에선 votes/myVotes는 0/빈값(실투표는 C2). */
