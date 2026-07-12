@@ -30,6 +30,8 @@ import com.damoim.server.domain.repository.PostReadRepository
 import com.damoim.server.domain.repository.RecentSearchRepository
 import com.damoim.server.domain.repository.RecruitRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.storage.StorageKeys
+import com.damoim.server.storage.StorageService
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -51,6 +53,7 @@ class BoardService(
     private val recentSearchRepository: RecentSearchRepository,
     private val membership: MembershipService,
     private val aggregates: BoardAggregates,
+    private val storageService: StorageService,
 ) {
     // ── 조회 ──
     @Transactional(readOnly = true)
@@ -112,6 +115,17 @@ class BoardService(
         return mapDetail(userId, clubId, post, extraView = if (newRead) 1 else 0)
     }
 
+    // ── 업로드(이미지/문서) ──
+    /** 1단계 — 게시판 첨부 업로드 presigned PUT URL 발급. 활성 회원이면 누구나. */
+    @Transactional(readOnly = true)
+    fun createUploadUrl(userId: Long, req: BoardUploadUrlRequest): BoardUploadUrlResponse {
+        val member = membership.currentMembership(userId)
+        val cap = if (req.kind == "IMAGE") IMAGE_MAX_BYTES else DOC_MAX_BYTES
+        if (req.sizeBytes > cap) throw BadRequestException("파일이 너무 큽니다.", "FILE_TOO_LARGE")
+        val up = storageService.presignUpload(StorageKeys.forPost(member.clubId, req.fileName), req.contentType)
+        return BoardUploadUrlResponse(up.url, up.key, up.expiresInSeconds)
+    }
+
     // ── 쓰기(글) ──
     @Transactional
     fun create(userId: Long, req: CreatePostRequest): PostDetailResponse {
@@ -130,11 +144,11 @@ class BoardService(
                 isPinned = req.pinned
             },
         )
-        persistRichContent(post.id, req)
+        persistRichContent(member.clubId, post.id, req)
         return mapDetail(userId, member.clubId, post)
     }
 
-    private fun persistRichContent(postId: Long, req: CreatePostRequest) {
+    private fun persistRichContent(clubId: Long, postId: Long, req: CreatePostRequest) {
         req.attachments.forEachIndexed { i, a ->
             val type = AttachmentType.valueOf(a.type)
             postAttachmentRepository.save(
@@ -143,19 +157,28 @@ class BoardService(
                     this.type = type
                     position = i
                     when (type) {
-                        AttachmentType.IMAGE ->
+                        AttachmentType.IMAGE -> {
+                            // 실오브젝트 존재·소유권·상한 검증 후 키 저장. 라벨(캡션)은 선택.
+                            storageKey = verifyMedia(clubId, a.storageKey, IMAGE_MAX_BYTES).key
                             imageLabel = a.imageLabel?.takeIf { it.isNotBlank() }
-                                ?: throw BadRequestException("이미지 라벨이 필요합니다.")
+                        }
                         AttachmentType.FILE_DOC -> {
                             fileName = a.fileName?.takeIf { it.isNotBlank() }
                                 ?: throw BadRequestException("파일명이 필요합니다.")
-                            sizeBytes = a.fileSizeBytes ?: throw BadRequestException("파일 크기가 필요합니다.")
+                            val vm = verifyMedia(clubId, a.storageKey, DOC_MAX_BYTES)
+                            storageKey = vm.key
+                            // 실크기(S3 HeadObject) 우선, 스텁 환경에선 클라 선언값 폴백.
+                            sizeBytes = vm.sizeBytes ?: a.fileSizeBytes
+                                ?: throw BadRequestException("파일 크기가 필요합니다.")
                         }
                         AttachmentType.LINK -> {
                             linkTitle = a.linkTitle?.takeIf { it.isNotBlank() }
                                 ?: throw BadRequestException("링크 제목이 필요합니다.")
                             linkDomain = a.linkDomain?.takeIf { it.isNotBlank() }
                                 ?: throw BadRequestException("링크 도메인이 필요합니다.")
+                            linkUrl = a.linkUrl?.takeIf {
+                                it.isNotBlank() && (it.startsWith("http://") || it.startsWith("https://"))
+                            } ?: throw BadRequestException("링크 URL은 http(s):// 형식이어야 합니다.")
                         }
                     }
                 },
@@ -280,12 +303,32 @@ class BoardService(
 
     private fun toAttachment(a: PostAttachment) = AttachmentResponse(
         type = a.type.name,
+        imageUrl = a.storageKey?.takeIf { a.type == AttachmentType.IMAGE }?.let { storageService.presignView(it) },
         imageLabel = a.imageLabel,
         fileName = a.fileName,
         fileSize = a.sizeBytes?.let { SizeLabels.of(it) },
+        fileUrl = a.storageKey?.takeIf { a.type == AttachmentType.FILE_DOC }
+            ?.let { storageService.presignDownload(it, a.fileName ?: "file") },
         linkTitle = a.linkTitle,
         linkDomain = a.linkDomain,
+        linkUrl = a.linkUrl,
     )
+
+    private data class VerifiedMedia(val key: String, val sizeBytes: Long?)
+
+    /** 첨부 storageKey 검증: 이 동아리 프리픽스(크로스테넌트 차단) + 실오브젝트 존재·상한(쿼터우회 차단). */
+    private fun verifyMedia(clubId: Long, key: String?, capBytes: Long): VerifiedMedia {
+        val k = key?.takeIf { it.isNotBlank() } ?: throw BadRequestException("업로드 키가 필요합니다.")
+        if (!k.startsWith("posts/$clubId/")) throw ForbiddenException("잘못된 업로드 키입니다.", "INVALID_STORAGE_KEY")
+        val size = if (storageService.verifiesSize) {
+            storageService.objectSizeOrNull(k)
+                ?: throw BadRequestException("업로드가 완료되지 않았습니다.", "UPLOAD_INCOMPLETE")
+        } else {
+            null
+        }
+        if (size != null && size > capBytes) throw BadRequestException("파일이 너무 큽니다.", "FILE_TOO_LARGE")
+        return VerifiedMedia(k, size)
+    }
 
     private fun toComment(c: Comment, postAuthorId: Long?, names: Map<Long, String>): CommentResponse {
         val name = c.authorId?.let { names[it] } ?: "탈퇴한 사용자"
@@ -308,11 +351,19 @@ class BoardService(
             commentCounts = mapCounts(if (ids.isEmpty()) emptyList() else commentRepository.countByPosts(ids)),
             likeCounts = mapCounts(if (ids.isEmpty()) emptyList() else postLikeRepository.countByPosts(ids)),
             likedSet = if (ids.isEmpty()) emptySet() else postLikeRepository.likedPostIds(ids, userId).toSet(),
-            thumbs = if (ids.isEmpty()) emptySet()
-            else postAttachmentRepository.findPostIdsWithType(ids, AttachmentType.IMAGE).toSet(),
+            thumbnails = if (ids.isEmpty()) emptyMap() else firstImageUrls(ids),
             readCounts = mapCounts(if (ids.isEmpty()) emptyList() else postReadRepository.countByPosts(ids)),
             memberCount = clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE).toInt(),
         )
+    }
+
+    /** 각 게시글의 첫 이미지 첨부 → presigned view URL(목록 썸네일). */
+    private fun firstImageUrls(postIds: List<Long>): Map<Long, String> {
+        val firstKey = LinkedHashMap<Long, String>()
+        postAttachmentRepository.findImageKeysByPosts(postIds).forEach { row ->
+            firstKey.putIfAbsent(row[0] as Long, row[1] as String)
+        }
+        return firstKey.mapValues { storageService.presignView(it.value) }
     }
 
     private fun toSummary(p: BoardPost, ctx: SummaryCtx): PostSummaryResponse {
@@ -336,7 +387,8 @@ class BoardService(
             commentCount = ctx.commentCounts[p.id] ?: 0,
             isPinned = p.isPinned,
             isAuthorLeader = a.isLeader,
-            hasThumbnail = p.id in ctx.thumbs,
+            hasThumbnail = p.id in ctx.thumbnails,
+            thumbnailUrl = ctx.thumbnails[p.id],
             readRate = readRate,
         )
     }
@@ -378,7 +430,7 @@ class BoardService(
         val commentCounts: Map<Long, Int>,
         val likeCounts: Map<Long, Int>,
         val likedSet: Set<Long>,
-        val thumbs: Set<Long>,
+        val thumbnails: Map<Long, String>,
         val readCounts: Map<Long, Int>,
         val memberCount: Int,
     )
@@ -398,6 +450,8 @@ class BoardService(
         const val LIST_LIMIT = 50
         const val RECENT_LIMIT = 10
         const val RECENT_KEEP = 20
+        const val IMAGE_MAX_BYTES = 10L * 1024 * 1024  // 게시판 이미지 첨부 상한 10MB
+        const val DOC_MAX_BYTES = 25L * 1024 * 1024     // 게시판 문서 첨부 상한 25MB
         val RECOMMENDED = listOf("모집", "공지", "일정", "회비")
         val DELETED_AUTHOR = AuthorInfo("탈퇴한 사용자", "탈퇴", null, false)
     }
