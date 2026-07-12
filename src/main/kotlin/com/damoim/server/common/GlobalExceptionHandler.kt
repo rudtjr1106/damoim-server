@@ -9,6 +9,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import software.amazon.awssdk.core.exception.SdkException
 
 /** 예외를 공통 봉투(ApiResponse) 실패 형태로 변환. 민감정보·스택은 노출하지 않는다. */
 @RestControllerAdvice
@@ -45,6 +46,13 @@ class GlobalExceptionHandler {
     fun handleKakaoDown(e: KakaoUnavailableException): ResponseEntity<ApiResponse<Nothing>> =
         ResponseEntity.status(HttpStatus.BAD_GATEWAY)
             .body(ApiResponse.fail("KAKAO_UNAVAILABLE", e.message ?: "외부 인증 서버 오류"))
+
+    /** 스토리지(S3 등) 오류 → 502. 내부 상세는 로그로만. */
+    @ExceptionHandler(SdkException::class)
+    fun handleStorage(e: SdkException): ResponseEntity<ApiResponse<Nothing>> {
+        log.error("Storage/SDK error", e)
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(ApiResponse.fail("STORAGE_ERROR", "스토리지 오류가 발생했습니다."))
+    }
 
     /** 예상 못 한 예외 — 내부 메시지는 로그로만, 응답은 일반화. */
     @ExceptionHandler(Exception::class)
