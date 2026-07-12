@@ -17,8 +17,11 @@ interface StorageService {
     /** 업로드용 presigned PUT URL. */
     fun presignUpload(key: String, contentType: String?): PresignedUpload
 
-    /** 다운로드용 presigned GET URL(파일명 지정). */
+    /** 다운로드용 presigned GET URL(파일명 지정, attachment). */
     fun presignDownload(key: String, downloadFileName: String): String
+
+    /** 인라인 표시용 presigned GET URL(이미지 렌더 — attachment 강제 안 함). */
+    fun presignView(key: String): String
 
     fun delete(key: String)
 }
@@ -35,12 +38,22 @@ data class StorageProperties(
     data class S3Props(val bucket: String, val region: String)
 }
 
-/** 스토리지 오브젝트 키 생성: resources/{clubId}/{uuid}/{sanitized}. */
+/** 스토리지 오브젝트 키 생성. 도메인별 프리픽스로 소유권 검증(크로스테넌트 차단)에 사용. */
 object StorageKeys {
     private val UNSAFE = Regex("[^A-Za-z0-9._가-힣-]")
 
-    fun forResource(clubId: Long, fileName: String): String {
-        val safe = fileName.replace(UNSAFE, "_").takeLast(120).ifBlank { "file" }
-        return "resources/$clubId/${UUID.randomUUID()}/$safe"
-    }
+    private fun sanitize(fileName: String): String =
+        fileName.replace(UNSAFE, "_").takeLast(120).ifBlank { "file" }
+
+    /** 자료실: resources/{clubId}/{uuid}/{name}. */
+    fun forResource(clubId: Long, fileName: String): String =
+        "resources/$clubId/${UUID.randomUUID()}/${sanitize(fileName)}"
+
+    /** 게시판 첨부: posts/{clubId}/{uuid}/{name}. */
+    fun forPost(clubId: Long, fileName: String): String =
+        "posts/$clubId/${UUID.randomUUID()}/${sanitize(fileName)}"
+
+    /** 프로필 사진: profiles/{userId}/{uuid}/{name}. */
+    fun forProfile(userId: Long, fileName: String): String =
+        "profiles/$userId/${UUID.randomUUID()}/${sanitize(fileName)}"
 }

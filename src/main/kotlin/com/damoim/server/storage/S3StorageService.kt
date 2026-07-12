@@ -77,6 +77,14 @@ class S3StorageService(
         ).url().toString()
     }
 
+    override fun presignView(key: String): String {
+        // 인라인 표시(이미지) — attachment 디스포지션 강제 없이 GET 서명만.
+        val get = GetObjectRequest.builder().bucket(bucket).key(key).build()
+        return presigner.presignGetObject(
+            GetObjectPresignRequest.builder().signatureDuration(expiry).getObjectRequest(get).build(),
+        ).url().toString()
+    }
+
     override fun delete(key: String) {
         s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build())
     }

@@ -21,5 +21,8 @@ class LocalStorageService(private val props: StorageProperties) : StorageService
     override fun presignDownload(key: String, downloadFileName: String): String =
         "http://localhost:8080/_localstorage/$key?op=get&name=$downloadFileName"
 
+    override fun presignView(key: String): String =
+        "http://localhost:8080/_localstorage/$key?op=view"
+
     override fun delete(key: String) { /* 스텁 — no-op */ }
 }
