@@ -7,10 +7,21 @@ import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
+import java.time.Instant
 
 interface BoardPostRepository : JpaRepository<BoardPost, Long> {
 
     fun findByIdAndDeletedAtIsNull(id: Long): BoardPost?
+
+    /** 회원 상세(18) 작성 글 수 — 삭제 제외. */
+    fun countByClubIdAndAuthorIdAndDeletedAtIsNull(clubId: Long, authorId: Long): Long
+
+    /** 회원 상세(18) 최근 활동 파생 — 마지막 작성 글 시각. */
+    @Query(
+        "select max(p.createdAt) from BoardPost p " +
+            "where p.clubId = :clubId and p.authorId = :authorId and p.deletedAt is null",
+    )
+    fun latestPostAt(@Param("clubId") clubId: Long, @Param("authorId") authorId: Long): Instant?
 
     /** 조회수 원자적 증가(read-modify-write 경쟁 방지). */
     @Modifying

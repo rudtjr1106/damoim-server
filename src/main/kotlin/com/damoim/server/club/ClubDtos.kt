@@ -47,6 +47,31 @@ data class JoinCodeResponse(val joinCode: String?, val joinCodeActive: Boolean)
 
 data class CohortResponse(val id: Long, val label: String, val short: String, val memberCount: Int)
 
+// ── 기수 추가(44) / 이름 변경(19) ──
+// short = 약칭("26기", 필수), label = 정식 표기("2026학년 1기 (26기)"). label 비면 short로 폴백.
+data class CohortCreateRequest(
+    @field:NotBlank(message = "기수 번호는 필수입니다.")
+    @field:Size(max = 30, message = "기수 약칭은 30자 이하여야 합니다.")
+    val short: String,
+    @field:Size(max = 80, message = "표시 이름은 80자 이하여야 합니다.")
+    val label: String = "",
+)
+
+data class CohortRenameRequest(
+    @field:NotBlank(message = "기수 번호는 필수입니다.")
+    @field:Size(max = 30, message = "기수 약칭은 30자 이하여야 합니다.")
+    val short: String,
+    @field:Size(max = 80, message = "표시 이름은 80자 이하여야 합니다.")
+    val label: String = "",
+)
+
+// ── 멀티 동아리 전환(33) ──
+/** 내가 속한 동아리 + 그 동아리에서의 세션 역할(ClubRole: LEADER/MEMBER). */
+data class ClubMembershipResponse(val club: ClubResponse, val role: String)
+
+/** 활성 동아리 전환 요청 — 대상은 내가 ACTIVE 회원인 동아리만 허용. */
+data class SwitchClubRequest(val clubId: Long)
+
 // ── 홈 요약(05/06) ──
 data class HomeSummaryResponse(
     val role: String,                 // LEADER / MEMBER (member_role에서 파생)
