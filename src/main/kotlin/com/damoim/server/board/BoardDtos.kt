@@ -77,6 +77,7 @@ data class PostSummaryResponse(
     val authorGisu: String?,
     val timeLabel: String,
     val likeCount: Int,
+    val likedByMe: Boolean,
     val commentCount: Int,
     val isPinned: Boolean,
     val isAuthorLeader: Boolean,
@@ -102,6 +103,7 @@ data class PostDetailResponse(
     val isPinned: Boolean,
     val isAuthorLeader: Boolean,
     val isMine: Boolean,
+    val readRate: Int?,
     val attachments: List<AttachmentResponse>,
     val poll: PollResponse?,
     val recruit: RecruitResponse?,
@@ -143,6 +145,21 @@ data class RecruitResponse(
     val method: String?,
     val appliedByMe: Boolean,
 )
+
+// ── 상호작용 요청/응답 ──
+data class VotePollRequest(
+    @field:Min(value = 0, message = "옵션 인덱스가 올바르지 않습니다.")
+    val optionIndex: Int,
+)
+
+data class AddCommentRequest(
+    @field:NotBlank(message = "댓글 내용은 필수입니다.")
+    @field:Size(max = 1000, message = "댓글은 1000자 이하여야 합니다.")
+    val content: String,
+    val parentId: Long? = null,
+)
+
+data class LikeResponse(val liked: Boolean, val likeCount: Int)
 
 data class CommentResponse(
     val id: Long,

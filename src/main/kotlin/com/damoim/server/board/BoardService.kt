@@ -16,6 +16,7 @@ import com.damoim.server.domain.entity.Recruit
 import com.damoim.server.domain.enums.AttachmentType
 import com.damoim.server.domain.enums.BoardCategory
 import com.damoim.server.domain.enums.MemberRole
+import com.damoim.server.domain.enums.MemberStatus
 import com.damoim.server.domain.enums.RecruitStatus
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.ClubMemberRepository
@@ -24,6 +25,8 @@ import com.damoim.server.domain.repository.CommentRepository
 import com.damoim.server.domain.repository.PollOptionRepository
 import com.damoim.server.domain.repository.PollRepository
 import com.damoim.server.domain.repository.PostAttachmentRepository
+import com.damoim.server.domain.repository.PostLikeRepository
+import com.damoim.server.domain.repository.PostReadRepository
 import com.damoim.server.domain.repository.RecruitRepository
 import com.damoim.server.domain.repository.UserRepository
 import org.springframework.data.domain.PageRequest
@@ -39,10 +42,13 @@ class BoardService(
     private val pollRepository: PollRepository,
     private val pollOptionRepository: PollOptionRepository,
     private val recruitRepository: RecruitRepository,
+    private val postLikeRepository: PostLikeRepository,
+    private val postReadRepository: PostReadRepository,
     private val clubMemberRepository: ClubMemberRepository,
     private val cohortRepository: CohortRepository,
     private val userRepository: UserRepository,
     private val membership: MembershipService,
+    private val aggregates: BoardAggregates,
 ) {
     // ── 조회 ──
     @Transactional(readOnly = true)
@@ -50,13 +56,8 @@ class BoardService(
         val clubId = membership.currentMembership(userId).clubId
         val pinned = boardPostRepository.findPinned(clubId, PageRequest.of(0, PINNED_LIMIT))
         val feed = boardPostRepository.findRecentNonPinned(clubId, PageRequest.of(0, FEED_LIMIT))
-        val authors = resolveAuthors(clubId, (pinned + feed).mapNotNull { it.authorId })
-        val counts = commentCounts(pinned + feed)
-        val thumbs = thumbnailPostIds(pinned + feed)
-        return BoardHomeResponse(
-            pinned = pinned.map { toSummary(it, authors, counts, thumbs) },
-            feed = feed.map { toSummary(it, authors, counts, thumbs) },
-        )
+        val ctx = summaryCtx(clubId, userId, pinned + feed)
+        return BoardHomeResponse(pinned.map { toSummary(it, ctx) }, feed.map { toSummary(it, ctx) })
     }
 
     @Transactional(readOnly = true)
@@ -64,89 +65,25 @@ class BoardService(
         val clubId = membership.currentMembership(userId).clubId
         val cat = category?.let { parseCategory(it) }
         val posts = boardPostRepository.findFeed(clubId, cat, PageRequest.of(0, LIST_LIMIT))
-        val authors = resolveAuthors(clubId, posts.mapNotNull { it.authorId })
-        val counts = commentCounts(posts)
-        val thumbs = thumbnailPostIds(posts)
-        return posts.map { toSummary(it, authors, counts, thumbs) }
+        val ctx = summaryCtx(clubId, userId, posts)
+        return posts.map { toSummary(it, ctx) }
     }
 
-    @Transactional(readOnly = true)
+    /** 상세 — 최초 열람 시 조회 기록·조회수 증가(쓰기)라 readOnly 아님. */
+    @Transactional
     fun detail(userId: Long, postId: Long): PostDetailResponse {
         val clubId = membership.currentMembership(userId).clubId
         val post = loadPostInClub(postId, clubId)
-        val authors = resolveAuthors(clubId, listOfNotNull(post.authorId))
-        val comments = commentRepository.findByPost(postId)
-        val commentAuthorNames = userRepository.findAllById(comments.mapNotNull { it.authorId })
-            .associate { it.id to it.nickname }
-        val authorInfo = post.authorId?.let { authors[it] } ?: DELETED_AUTHOR
-        return PostDetailResponse(
-            id = post.id,
-            category = post.category.name,
-            title = post.title,
-            content = post.content,
-            authorName = authorInfo.name,
-            authorInitials = authorInfo.initials,
-            authorGisu = authorInfo.gisu,
-            timeLabel = post.createdAt?.let { TimeLabels.ago(it) } ?: "",
-            dateLabel = post.createdAt?.let { TimeLabels.date(it) } ?: "",
-            viewCount = post.viewCount,       // 조회수 증가는 C2
-            likeCount = 0,                    // C2 post_likes 집계
-            likedByMe = false,                // C2
-            commentCount = comments.size,
-            isPinned = post.isPinned,
-            isAuthorLeader = authorInfo.isLeader,
-            isMine = post.authorId == userId,
-            attachments = postAttachmentRepository.findByPostIdOrderByPosition(postId).map { toAttachment(it) },
-            poll = pollRepository.findByPostId(postId)?.let { toPoll(it) },
-            recruit = recruitRepository.findByPostId(postId)?.let { toRecruit(it) },
-            comments = comments.map { toComment(it, post.authorId, commentAuthorNames) },
-        )
+        val newRead = recordRead(post, userId)
+        return mapDetail(userId, clubId, post, extraView = if (newRead) 1 else 0)
     }
 
-    private fun toAttachment(a: PostAttachment) = AttachmentResponse(
-        type = a.type.name,
-        imageLabel = a.imageLabel,
-        fileName = a.fileName,
-        fileSize = a.sizeBytes?.let { SizeLabels.of(it) },
-        linkTitle = a.linkTitle,
-        linkDomain = a.linkDomain,
-    )
-
-    private fun toPoll(poll: Poll): PollResponse {
-        val options = pollOptionRepository.findByPollIdOrderByPosition(poll.id)
-        return PollResponse(
-            anonymous = poll.anonymous,
-            multiSelect = poll.multiSelect,
-            deadlineLabel = poll.deadline?.let { TimeLabels.deadlineLabel(it) },
-            dday = poll.deadline?.let { TimeLabels.dday(it) },
-            totalVotes = 0,          // C2 poll_votes 집계
-            myVotes = emptyList(),   // C2
-            options = options.map { PollOptionResponse(it.position, it.label, 0, 0) },
-        )
-    }
-
-    private fun toRecruit(r: Recruit): RecruitResponse {
-        val current = 0             // C2 recruit_applications 집계
-        return RecruitResponse(
-            status = r.status.name,
-            capacity = r.capacity,
-            current = current,
-            remaining = (r.capacity - current).coerceAtLeast(0),
-            percent = if (r.capacity == 0) 0 else (current * 100 / r.capacity),
-            deadlineLabel = r.deadline?.let { TimeLabels.deadlineLabel(it) },
-            dday = r.deadline?.let { TimeLabels.dday(it) },
-            method = r.method,
-            appliedByMe = false,     // C2
-        )
-    }
-
-    // ── 쓰기 ──
+    // ── 쓰기(글) ──
     @Transactional
     fun create(userId: Long, req: CreatePostRequest): PostDetailResponse {
         val member = membership.currentMembership(userId)
         val category = parseCategory(req.category)
-        val pinned = req.pinned
-        if ((category == BoardCategory.NOTICE || pinned) && !canManageBoard(member)) {
+        if ((category == BoardCategory.NOTICE || req.pinned) && !canManageBoard(member)) {
             throw ForbiddenException("공지 작성·필독 지정은 운영진만 가능합니다.", "NOT_STAFF")
         }
         val post = boardPostRepository.save(
@@ -156,14 +93,13 @@ class BoardService(
                 title = req.title.trim()
                 content = req.content
                 authorId = userId
-                isPinned = pinned
+                isPinned = req.pinned
             },
         )
         persistRichContent(post.id, req)
-        return detail(userId, post.id)
+        return mapDetail(userId, member.clubId, post)
     }
 
-    /** 첨부·투표·모집을 저장(작성 시). 편집은 텍스트만 — 리치 콘텐츠 편집은 후순위. */
     private fun persistRichContent(postId: Long, req: CreatePostRequest) {
         req.attachments.forEachIndexed { i, a ->
             val type = AttachmentType.valueOf(a.type)
@@ -204,13 +140,7 @@ class BoardService(
                 },
             )
             opts.forEachIndexed { i, label ->
-                pollOptionRepository.save(
-                    PollOption().apply {
-                        pollId = poll.id
-                        this.label = label
-                        position = i
-                    },
-                )
+                pollOptionRepository.save(PollOption().apply { pollId = poll.id; this.label = label; position = i })
             }
         }
         req.recruit?.let { r ->
@@ -230,10 +160,7 @@ class BoardService(
     fun update(userId: Long, postId: Long, req: UpdatePostRequest): PostDetailResponse {
         val member = membership.currentMembership(userId)
         val post = loadPostInClub(postId, member.clubId)
-        if (post.authorId != userId) {
-            throw ForbiddenException("본인 글만 수정할 수 있습니다.", "NOT_AUTHOR")
-        }
-        // 필독 글은 운영진만 수정(강등된 작성자의 배너 콘텐츠 변조 차단)
+        if (post.authorId != userId) throw ForbiddenException("본인 글만 수정할 수 있습니다.", "NOT_AUTHOR")
         if (post.isPinned && !canManageBoard(member)) {
             throw ForbiddenException("필독 글은 운영진만 수정할 수 있습니다.", "NOT_STAFF")
         }
@@ -245,14 +172,13 @@ class BoardService(
         post.title = req.title.trim()
         post.content = req.content
         boardPostRepository.save(post)
-        return detail(userId, post.id)
+        return mapDetail(userId, member.clubId, post)
     }
 
     @Transactional
     fun delete(userId: Long, postId: Long) {
         val member = membership.currentMembership(userId)
         val post = loadPostInClub(postId, member.clubId)
-        // 작성자 본인 또는 운영진(모더레이션)만 삭제 가능
         if (post.authorId != userId && !canManageBoard(member)) {
             throw ForbiddenException("삭제 권한이 없습니다.", "NOT_ALLOWED")
         }
@@ -260,7 +186,6 @@ class BoardService(
         boardPostRepository.save(post)
     }
 
-    /** 필독 토글(운영진). */
     @Transactional
     fun togglePin(userId: Long, postId: Long): Map<String, Boolean> {
         val member = membership.currentMembership(userId)
@@ -271,55 +196,62 @@ class BoardService(
         return mapOf("isPinned" to post.isPinned)
     }
 
-    // ── 내부 ──
-    private fun loadPostInClub(postId: Long, clubId: Long): BoardPost {
-        val post = boardPostRepository.findByIdAndDeletedAtIsNull(postId)
-            ?: throw NotFoundException("게시글을 찾을 수 없습니다.")
-        if (post.clubId != clubId) throw NotFoundException("게시글을 찾을 수 없습니다.") // 타 동아리 글 노출 차단
-        return post
-    }
-
-    private fun canManageBoard(member: ClubMember) = member.memberRole != MemberRole.MEMBER
-
-    private fun parseCategory(value: String): BoardCategory =
-        runCatching { BoardCategory.valueOf(value) }
-            .getOrElse { throw BadRequestException("카테고리가 올바르지 않습니다.") }
-
-    private fun commentCounts(posts: List<BoardPost>): Map<Long, Int> {
-        if (posts.isEmpty()) return emptyMap()
-        return commentRepository.countByPosts(posts.map { it.id })
-            .associate { (it[0] as Long) to (it[1] as Long).toInt() }
-    }
-
-    private fun toSummary(
-        p: BoardPost,
-        authors: Map<Long, AuthorInfo>,
-        counts: Map<Long, Int>,
-        thumbs: Set<Long>,
-    ): PostSummaryResponse {
-        val a = p.authorId?.let { authors[it] } ?: DELETED_AUTHOR
-        return PostSummaryResponse(
-            id = p.id,
-            category = p.category.name,
-            title = p.title,
-            preview = preview(p.content),
-            authorName = a.name,
-            authorInitials = a.initials,
-            authorGisu = a.gisu,
-            timeLabel = p.createdAt?.let { TimeLabels.ago(it) } ?: "",
-            likeCount = 0,
-            commentCount = counts[p.id] ?: 0,
-            isPinned = p.isPinned,
-            isAuthorLeader = a.isLeader,
-            hasThumbnail = p.id in thumbs,
-            readRate = null,
+    // ── 매핑/집계 ──
+    private fun mapDetail(userId: Long, clubId: Long, post: BoardPost, extraView: Int = 0): PostDetailResponse {
+        val authors = resolveAuthors(clubId, listOfNotNull(post.authorId))
+        val authorInfo = post.authorId?.let { authors[it] } ?: DELETED_AUTHOR
+        val comments = commentRepository.findByPost(post.id)
+        val commentAuthorNames = userRepository.findAllById(comments.mapNotNull { it.authorId })
+            .associate { it.id to it.nickname }
+        return PostDetailResponse(
+            id = post.id,
+            category = post.category.name,
+            title = post.title,
+            content = post.content,
+            authorName = authorInfo.name,
+            authorInitials = authorInfo.initials,
+            authorGisu = authorInfo.gisu,
+            timeLabel = post.createdAt?.let { TimeLabels.ago(it) } ?: "",
+            dateLabel = post.createdAt?.let { TimeLabels.date(it) } ?: "",
+            viewCount = post.viewCount + extraView,   // 표시값만 가산(엔티티 미더티 → 원자증가 보존)
+            likeCount = postLikeRepository.countByPostId(post.id).toInt(),
+            likedByMe = postLikeRepository.existsByPostIdAndUserId(post.id, userId),
+            commentCount = comments.size,
+            isPinned = post.isPinned,
+            isAuthorLeader = authorInfo.isLeader,
+            isMine = post.authorId == userId,
+            readRate = readRateFor(post, clubId),
+            attachments = postAttachmentRepository.findByPostIdOrderByPosition(post.id).map { toAttachment(it) },
+            poll = pollRepository.findByPostId(post.id)?.let { aggregates.pollResponse(it, userId) },
+            recruit = recruitRepository.findByPostId(post.id)?.let { aggregates.recruitResponse(it, userId) },
+            comments = comments.map { toComment(it, post.authorId, commentAuthorNames) },
         )
     }
 
-    private fun thumbnailPostIds(posts: List<BoardPost>): Set<Long> {
-        if (posts.isEmpty()) return emptySet()
-        return postAttachmentRepository.findPostIdsWithType(posts.map { it.id }, AttachmentType.IMAGE).toSet()
+    /** 최초 열람만 조회수 원자 증가(중복 열람 무시). 엔티티는 더티화하지 않는다(라이트백이 원자증가를 덮음). */
+    private fun recordRead(post: BoardPost, userId: Long): Boolean {
+        val newRead = postReadRepository.insertIfAbsent(post.id, userId) > 0
+        if (newRead) boardPostRepository.incrementViewCount(post.id)
+        return newRead
     }
+
+    /** 필독 확인율(공지만) = 열람자 수 / 활동회원 수. */
+    private fun readRateFor(post: BoardPost, clubId: Long): Int? {
+        if (post.category != BoardCategory.NOTICE) return null
+        val members = clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE).toInt()
+        if (members == 0) return 0
+        val reads = postReadRepository.countByPostId(post.id).toInt()
+        return (reads * 100 / members).coerceIn(0, 100)
+    }
+
+    private fun toAttachment(a: PostAttachment) = AttachmentResponse(
+        type = a.type.name,
+        imageLabel = a.imageLabel,
+        fileName = a.fileName,
+        fileSize = a.sizeBytes?.let { SizeLabels.of(it) },
+        linkTitle = a.linkTitle,
+        linkDomain = a.linkDomain,
+    )
 
     private fun toComment(c: Comment, postAuthorId: Long?, names: Map<Long, String>): CommentResponse {
         val name = c.authorId?.let { names[it] } ?: "탈퇴한 사용자"
@@ -335,27 +267,87 @@ class BoardService(
         )
     }
 
+    private fun summaryCtx(clubId: Long, userId: Long, posts: List<BoardPost>): SummaryCtx {
+        val ids = posts.map { it.id }
+        return SummaryCtx(
+            authors = resolveAuthors(clubId, posts.mapNotNull { it.authorId }),
+            commentCounts = mapCounts(if (ids.isEmpty()) emptyList() else commentRepository.countByPosts(ids)),
+            likeCounts = mapCounts(if (ids.isEmpty()) emptyList() else postLikeRepository.countByPosts(ids)),
+            likedSet = if (ids.isEmpty()) emptySet() else postLikeRepository.likedPostIds(ids, userId).toSet(),
+            thumbs = if (ids.isEmpty()) emptySet()
+            else postAttachmentRepository.findPostIdsWithType(ids, AttachmentType.IMAGE).toSet(),
+            readCounts = mapCounts(if (ids.isEmpty()) emptyList() else postReadRepository.countByPosts(ids)),
+            memberCount = clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE).toInt(),
+        )
+    }
+
+    private fun toSummary(p: BoardPost, ctx: SummaryCtx): PostSummaryResponse {
+        val a = p.authorId?.let { ctx.authors[it] } ?: DELETED_AUTHOR
+        val readRate = if (p.category == BoardCategory.NOTICE && ctx.memberCount > 0) {
+            ((ctx.readCounts[p.id] ?: 0) * 100 / ctx.memberCount).coerceIn(0, 100)
+        } else {
+            null
+        }
+        return PostSummaryResponse(
+            id = p.id,
+            category = p.category.name,
+            title = p.title,
+            preview = preview(p.content),
+            authorName = a.name,
+            authorInitials = a.initials,
+            authorGisu = a.gisu,
+            timeLabel = p.createdAt?.let { TimeLabels.ago(it) } ?: "",
+            likeCount = ctx.likeCounts[p.id] ?: 0,
+            likedByMe = p.id in ctx.likedSet,
+            commentCount = ctx.commentCounts[p.id] ?: 0,
+            isPinned = p.isPinned,
+            isAuthorLeader = a.isLeader,
+            hasThumbnail = p.id in ctx.thumbs,
+            readRate = readRate,
+        )
+    }
+
+    // ── 내부 공용 ──
+    private fun loadPostInClub(postId: Long, clubId: Long): BoardPost {
+        val post = boardPostRepository.findByIdAndDeletedAtIsNull(postId)
+            ?: throw NotFoundException("게시글을 찾을 수 없습니다.")
+        if (post.clubId != clubId) throw NotFoundException("게시글을 찾을 수 없습니다.")
+        return post
+    }
+
+    private fun canManageBoard(member: ClubMember) = member.memberRole != MemberRole.MEMBER
+
+    private fun parseCategory(value: String): BoardCategory =
+        runCatching { BoardCategory.valueOf(value) }.getOrElse { throw BadRequestException("카테고리가 올바르지 않습니다.") }
+
+    private fun mapCounts(rows: List<Array<Any>>): Map<Long, Int> =
+        rows.associate { (it[0] as Long) to (it[1] as Long).toInt() }
+
     private fun resolveAuthors(clubId: Long, authorIds: Collection<Long>): Map<Long, AuthorInfo> {
         val ids = authorIds.distinct()
         if (ids.isEmpty()) return emptyMap()
         val names = userRepository.findAllById(ids).associate { it.id to it.nickname }
         val members = clubMemberRepository.findByClubIdAndUserIdIn(clubId, ids).associateBy { it.userId }
-        val cohorts = cohortRepository
-            .findAllById(members.values.mapNotNull { it.cohortId }.distinct())
+        val cohorts = cohortRepository.findAllById(members.values.mapNotNull { it.cohortId }.distinct())
             .associate { it.id to it.short }
         return ids.associateWith { id ->
             val name = names[id] ?: "탈퇴한 사용자"
             val m = members[id]
-            AuthorInfo(
-                name = name,
-                initials = initials(name),
-                gisu = m?.cohortId?.let { cohorts[it] },
-                isLeader = m?.memberRole == MemberRole.LEADER,
-            )
+            AuthorInfo(name, initials(name), m?.cohortId?.let { cohorts[it] }, m?.memberRole == MemberRole.LEADER)
         }
     }
 
     private data class AuthorInfo(val name: String, val initials: String, val gisu: String?, val isLeader: Boolean)
+
+    private class SummaryCtx(
+        val authors: Map<Long, AuthorInfo>,
+        val commentCounts: Map<Long, Int>,
+        val likeCounts: Map<Long, Int>,
+        val likedSet: Set<Long>,
+        val thumbs: Set<Long>,
+        val readCounts: Map<Long, Int>,
+        val memberCount: Int,
+    )
 
     private fun preview(content: String): String =
         content.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(80) ?: ""

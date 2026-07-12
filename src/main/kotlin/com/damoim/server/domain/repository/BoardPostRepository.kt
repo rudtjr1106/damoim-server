@@ -4,12 +4,18 @@ import com.damoim.server.domain.entity.BoardPost
 import com.damoim.server.domain.enums.BoardCategory
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 
 interface BoardPostRepository : JpaRepository<BoardPost, Long> {
 
     fun findByIdAndDeletedAtIsNull(id: Long): BoardPost?
+
+    /** 조회수 원자적 증가(read-modify-write 경쟁 방지). */
+    @Modifying
+    @Query("update BoardPost p set p.viewCount = p.viewCount + 1 where p.id = :id")
+    fun incrementViewCount(@Param("id") id: Long): Int
 
     /** 목록/피드 — 삭제 제외, 카테고리 선택(null이면 전체), 필독 먼저·최신순. 페이지 제한 필수(자원고갈 방지). */
     @Query(
