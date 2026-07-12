@@ -27,6 +27,7 @@ import com.damoim.server.domain.repository.PollRepository
 import com.damoim.server.domain.repository.PostAttachmentRepository
 import com.damoim.server.domain.repository.PostLikeRepository
 import com.damoim.server.domain.repository.PostReadRepository
+import com.damoim.server.domain.repository.RecentSearchRepository
 import com.damoim.server.domain.repository.RecruitRepository
 import com.damoim.server.domain.repository.UserRepository
 import org.springframework.data.domain.PageRequest
@@ -47,6 +48,7 @@ class BoardService(
     private val clubMemberRepository: ClubMemberRepository,
     private val cohortRepository: CohortRepository,
     private val userRepository: UserRepository,
+    private val recentSearchRepository: RecentSearchRepository,
     private val membership: MembershipService,
     private val aggregates: BoardAggregates,
 ) {
@@ -67,6 +69,38 @@ class BoardService(
         val posts = boardPostRepository.findFeed(clubId, cat, PageRequest.of(0, LIST_LIMIT))
         val ctx = summaryCtx(clubId, userId, posts)
         return posts.map { toSummary(it, ctx) }
+    }
+
+    // ── 검색(40/85) ──
+    @Transactional
+    fun search(userId: Long, rawQuery: String): SearchResultResponse {
+        val clubId = membership.currentMembership(userId).clubId
+        val q = rawQuery.trim().take(100)
+        if (q.isBlank()) return SearchResultResponse(q, emptyList())
+        recentSearchRepository.touch(userId, q)             // 원문 기록(표시용)
+        recentSearchRepository.prune(userId, RECENT_KEEP)   // 사용자당 상한 유지
+        val esc = escapeLike(q)                             // LIKE 메타문자 이스케이프(와일드카드 주입 방지)
+        val authorIds = userRepository.findIdsByNicknameContaining(esc).ifEmpty { listOf(-1L) }
+        val posts = boardPostRepository.searchInClub(clubId, esc, authorIds, PageRequest.of(0, LIST_LIMIT))
+        val ctx = summaryCtx(clubId, userId, posts)
+        return SearchResultResponse(q, posts.map { toSummary(it, ctx) })
+    }
+
+    @Transactional(readOnly = true)
+    fun searchSuggestions(userId: Long): SearchSuggestionsResponse {
+        val recent = recentSearchRepository
+            .findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, RECENT_LIMIT)).map { it.query }
+        return SearchSuggestionsResponse(recent, RECOMMENDED)
+    }
+
+    @Transactional
+    fun removeRecentSearch(userId: Long, query: String) {
+        recentSearchRepository.deleteByUserIdAndQuery(userId, query.trim())
+    }
+
+    @Transactional
+    fun clearRecentSearches(userId: Long) {
+        recentSearchRepository.deleteByUserId(userId)
     }
 
     /** 상세 — 최초 열람 시 조회 기록·조회수 증가(쓰기)라 readOnly 아님. */
@@ -349,6 +383,10 @@ class BoardService(
         val memberCount: Int,
     )
 
+    /** LIKE 메타문자 이스케이프('!' 이스케이프 문자 기준). '!' 먼저 이스케이프해야 이중처리 안 됨. */
+    private fun escapeLike(s: String): String =
+        s.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+
     private fun preview(content: String): String =
         content.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(80) ?: ""
 
@@ -358,6 +396,9 @@ class BoardService(
         const val PINNED_LIMIT = 20
         const val FEED_LIMIT = 30
         const val LIST_LIMIT = 50
+        const val RECENT_LIMIT = 10
+        const val RECENT_KEEP = 20
+        val RECOMMENDED = listOf("모집", "공지", "일정", "회비")
         val DELETED_AUTHOR = AuthorInfo("탈퇴한 사용자", "탈퇴", null, false)
     }
 }

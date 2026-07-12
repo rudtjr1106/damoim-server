@@ -177,3 +177,38 @@ data class BoardHomeResponse(
     val pinned: List<PostSummaryResponse>,
     val feed: List<PostSummaryResponse>,
 )
+
+// ── 검색(40/85) ──
+data class SearchResultResponse(val query: String, val posts: List<PostSummaryResponse>)
+
+/** 85 검색 시작 — 최근·추천 검색어. */
+data class SearchSuggestionsResponse(val recent: List<String>, val recommended: List<String>)
+
+// ── 임시저장(작성 초안, 유저 1건) ──
+/** 초안 저장 요청. 작성 중이라 모든 필드 lax(불완전 허용). */
+data class DraftRequest(
+    val category: String? = null,
+    @field:Size(max = 200) val title: String? = null,
+    @field:Size(max = 20000) val content: String? = null,
+    val pinned: Boolean = false,
+    @field:Valid @field:Size(max = 10) val attachments: List<AttachmentInput> = emptyList(),
+    @field:Valid val poll: PollInput? = null,
+    @field:Valid val recruit: RecruitInput? = null,
+)
+
+data class DraftResponse(
+    val category: String,
+    val title: String,
+    val content: String,
+    val pinned: Boolean,
+    val attachments: List<AttachmentInput>,
+    val poll: PollInput?,
+    val recruit: RecruitInput?,
+)
+
+/** 초안의 리치 콘텐츠(payload jsonb 직렬화 대상). */
+data class DraftPayload(
+    val attachments: List<AttachmentInput> = emptyList(),
+    val poll: PollInput? = null,
+    val recruit: RecruitInput? = null,
+)
