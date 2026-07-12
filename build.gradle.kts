@@ -31,6 +31,10 @@ dependencies {
     // ── API 문서 (OpenAPI 3 + Swagger UI: /swagger-ui.html, /v3/api-docs) ──
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
 
+    // ── 레이트리밋 (인메모리 Bucket4j + Caffeine 바운디드 레지스트리) ──
+    implementation("com.bucket4j:bucket4j-core:8.10.1")
+    implementation("com.github.ben-manes.caffeine:caffeine")
+
     // ── Kotlin 지원 ──
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")

@@ -36,6 +36,9 @@ management:
 
 server:
   port: ${SERVER_PORT:8080}
+  tomcat:
+    # 413 조기 응답 후 클라가 계속 밀어넣는 본문을 무한 drain하지 않도록 상한(바디 상한 강제용 아님)
+    max-swallow-size: 2097152   # 2MB
 
 # ── 앱 보안 설정 ──
 app:
@@ -48,6 +51,9 @@ app:
     issuer: damoim
   kakao:
     user-info-url: ${KAKAO_USER_INFO_URL:https://kapi.kakao.com/v2/user/me}
+    token-info-url: ${KAKAO_TOKEN_INFO_URL:https://kapi.kakao.com/v1/user/access_token_info}
+    # 우리 카카오 앱 식별자. 미주입(0) 시 부팅 실패 — 토큰 발급 대상 앱 검증(confused-deputy 방지)에 필수.
+    app-id: ${KAKAO_APP_ID:0}
   storage:
     provider: ${STORAGE_PROVIDER:local}                  # local(개발 스텁) | s3
     quota-bytes: ${STORAGE_QUOTA_BYTES:5368709120}       # 동아리당 5GB
@@ -55,3 +61,5 @@ app:
     s3:
       bucket: ${S3_BUCKET:}
       region: ${S3_REGION:ap-northeast-2}
+  request:
+    max-body-bytes: ${MAX_BODY_BYTES:1048576}            # JSON 요청 본문 상한 1MB(DoS 방지)

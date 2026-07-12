@@ -2,6 +2,7 @@ package com.damoim.server.config
 
 import com.damoim.server.security.JwtAuthenticationFilter
 import com.damoim.server.security.JwtTokenProvider
+import com.damoim.server.security.RateLimitFilter
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -11,6 +12,7 @@ import org.springframework.security.config.annotation.web.invoke
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter
 
 /**
  * 무상태(JWT) 보안 설정.
@@ -27,12 +29,24 @@ class SecurityConfig {
         val jwtFilter = JwtAuthenticationFilter(tokenProvider)
 
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter::class.java)
+        // 레이트리밋은 JWT 필터 뒤(USER 키가 principal 사용). 미인증 경로는 IP로 폴백.
+        http.addFilterAfter(RateLimitFilter(), JwtAuthenticationFilter::class.java)
 
         http {
             csrf { disable() }
             httpBasic { disable() }
             formLogin { disable() }
             sessionManagement { sessionCreationPolicy = SessionCreationPolicy.STATELESS }
+
+            // 보안 응답 헤더(하드닝). HSTS는 HTTPS(prod, forward-headers-strategy) 요청에서만 방출된다.
+            // X-Frame-Options: DENY 와 X-Content-Type-Options: nosniff 는 Spring Security 기본값.
+            headers {
+                referrerPolicy { policy = ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN }
+                httpStrictTransportSecurity {
+                    includeSubDomains = true
+                    maxAgeInSeconds = 31_536_000                          // 1년(HTTPS 요청에서만 방출)
+                }
+            }
 
             authorizeHttpRequests {
                 authorize("/api/auth/**", permitAll)

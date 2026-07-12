@@ -8,6 +8,11 @@ spring:
   jpa:
     show-sql: true
 
+# 카카오 app_id는 시크릿이 아닌 앱 식별자 — 로컬 부팅용 더미(실 카카오 로그인 시 KAKAO_APP_ID 주입).
+app:
+  kakao:
+    app-id: ${KAKAO_APP_ID:999999}
+
 # JWT 시크릿은 여기에 커밋하지 않는다(보안 리뷰).
 # 로컬에서 app.jwt.secret(JWT_SECRET)을 주입하지 않으면 JwtTokenProvider가 부팅 시
 # 임시 랜덤 키를 생성한다(재시작마다 기존 토큰 무효화 — 개발 편의용, 운영에선 절대 발생 안 함).

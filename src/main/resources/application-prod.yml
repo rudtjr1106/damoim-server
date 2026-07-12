@@ -8,3 +8,7 @@ spring:
     password: ${DB_PASSWORD}
   jpa:
     show-sql: false
+
+server:
+  # ALB/프록시가 TLS 종단 → X-Forwarded-Proto를 신뢰해 HTTPS로 인식(HSTS 헤더 실제 방출).
+  forward-headers-strategy: framework
