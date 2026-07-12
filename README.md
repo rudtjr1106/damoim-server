@@ -49,6 +49,41 @@ docker run -p 8080:8080 \
 ```
 DB는 AWS **RDS(PostgreSQL)** 사용 → 부팅 시 **같은 `V1__init.sql`이 Flyway로 실행**돼 스키마 이식.
 
+## 파일 스토리지(자료실 S3 연결)
+
+자료실 파일은 **S3 presigned URL**로 처리(클라가 S3에 직접 업/다운, 서버는 URL·메타만).
+`StorageService` 추상화라 **코드 수정 없이 설정만**으로 로컬 스텁 ↔ 실제 S3 전환.
+
+**1. 버킷 생성 + 비공개 유지**(접근은 presigned URL로만):
+```bash
+aws s3api create-bucket --bucket damoim-files --region ap-northeast-2 \
+  --create-bucket-configuration LocationConstraint=ap-northeast-2
+# 퍼블릭 액세스 차단(기본 ON 유지 권장)
+```
+
+**2. IAM 최소 권한**(서버가 presign 서명·HeadObject·삭제):
+```json
+{ "Version": "2012-10-17", "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+    "Resource": "arn:aws:s3:::damoim-files/*" }] }
+```
+
+**3. 환경변수 주입** → `S3StorageService` 활성화:
+```bash
+STORAGE_PROVIDER=s3 S3_BUCKET=damoim-files S3_REGION=ap-northeast-2 \
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... ./gradlew bootRun
+# 운영(EC2/ECS)은 정적 키 대신 IAM 역할 권장 → 키 없이 동작
+```
+
+**4. CORS**(웹/WebView 업로드면 필수, 네이티브 앱은 불필요):
+```json
+[{ "AllowedOrigins": ["*"], "AllowedMethods": ["PUT", "GET"],
+   "AllowedHeaders": ["*"], "MaxAgeSeconds": 3000 }]
+```
+
+**업로드 흐름(클라 3단계)**: `POST /api/resources/upload-url` → 받은 URL로 파일 **직접 PUT** → `POST /api/resources`(storageKey 포함, 서버가 HeadObject로 실크기 확인 후 등록). 다운로드는 `GET /api/resources/{id}/download-url`.
+
 ## 구조
 
 ```
