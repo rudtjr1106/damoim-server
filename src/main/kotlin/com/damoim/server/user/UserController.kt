@@ -5,6 +5,7 @@ import jakarta.validation.Valid
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
+import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
@@ -25,4 +26,12 @@ class UserController(private val userService: UserService) {
         @Valid @RequestBody req: UpdateProfileRequest,
     ): UserResponse =
         userService.updateProfile(principal.userId, req)
+
+    /** 프로필 사진 업로드 URL 발급(1단계) — presigned PUT. 올린 뒤 key를 PATCH /profile로 저장. */
+    @PostMapping("/profile-image")
+    fun profileImageUploadUrl(
+        @AuthenticationPrincipal principal: UserPrincipal,
+        @Valid @RequestBody req: ProfileImageUploadRequest,
+    ): ProfileImageUploadResponse =
+        userService.createProfileImageUploadUrl(principal.userId, req)
 }

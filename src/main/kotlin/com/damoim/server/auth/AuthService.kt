@@ -13,7 +13,7 @@ import com.damoim.server.domain.repository.UserRepository
 import com.damoim.server.security.JwtProperties
 import com.damoim.server.security.JwtTokenProvider
 import com.damoim.server.security.RandomTokens
-import com.damoim.server.user.UserResponse
+import com.damoim.server.user.UserResponseMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -28,6 +28,7 @@ class AuthService(
     private val sessionRevoker: SessionRevoker,
     private val tokenProvider: JwtTokenProvider,
     private val jwtProperties: JwtProperties,
+    private val userResponseMapper: UserResponseMapper,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -129,7 +130,7 @@ class AuthService(
             accessToken = access,
             refreshToken = rawRefresh,
             expiresIn = tokenProvider.accessTokenTtlSeconds,
-            user = UserResponse.from(user),
+            user = userResponseMapper.toResponse(user),
         )
     }
 }
