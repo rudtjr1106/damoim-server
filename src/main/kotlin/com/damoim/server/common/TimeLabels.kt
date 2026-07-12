@@ -3,6 +3,7 @@ package com.damoim.server.common
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 /**
  * 표시용 상대시간/날짜 라벨을 서버(KST)에서 파생한다. 원천은 timestamptz(created_at 등).
@@ -32,5 +33,27 @@ object TimeLabels {
     fun date(t: Instant): String {
         val d = t.atZone(KST).toLocalDate()
         return "${d.year}.${"%02d".format(d.monthValue)}.${"%02d".format(d.dayOfMonth)}"
+    }
+
+    private val WEEKDAYS = arrayOf("월", "화", "수", "목", "금", "토", "일")
+
+    /** "D-7" / "D-day" / "마감" (deadline 기준). */
+    fun dday(deadline: Instant, now: Instant = Instant.now()): String {
+        val today = now.atZone(KST).toLocalDate()
+        val target = deadline.atZone(KST).toLocalDate()
+        val days = ChronoUnit.DAYS.between(today, target)
+        return when {
+            days > 0 -> "D-$days"
+            days == 0L -> "D-day"
+            else -> "마감"
+        }
+    }
+
+    /** "6.17 (화) 23:59" */
+    fun deadlineLabel(deadline: Instant): String {
+        val z = deadline.atZone(KST)
+        val dow = WEEKDAYS[z.dayOfWeek.value - 1]
+        return "${z.monthValue}.${"%02d".format(z.dayOfMonth)} ($dow) " +
+            "${"%02d".format(z.hour)}:${"%02d".format(z.minute)}"
     }
 }

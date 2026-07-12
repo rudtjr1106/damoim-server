@@ -1,8 +1,11 @@
 package com.damoim.server.board
 
+import jakarta.validation.Valid
+import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.Size
+import java.time.Instant
 
 // ── 요청 ──
 data class CreatePostRequest(
@@ -15,6 +18,40 @@ data class CreatePostRequest(
     @field:Size(max = 20000, message = "내용이 너무 깁니다.")
     val content: String,
     val pinned: Boolean = false,
+    @field:Valid
+    @field:Size(max = 10, message = "첨부는 최대 10개입니다.")
+    val attachments: List<AttachmentInput> = emptyList(),
+    @field:Valid val poll: PollInput? = null,
+    @field:Valid val recruit: RecruitInput? = null,
+)
+
+/** 첨부 입력(다형 — type별 필드). 파일 크기는 클라가 바이트로 전달. */
+data class AttachmentInput(
+    @field:Pattern(regexp = "IMAGE|FILE_DOC|LINK", message = "첨부 유형이 올바르지 않습니다.")
+    val type: String,
+    @field:Size(max = 200) val imageLabel: String? = null,
+    @field:Size(max = 255) val fileName: String? = null,
+    @field:Min(value = 1, message = "파일 크기가 올바르지 않습니다.")
+    val fileSizeBytes: Long? = null,
+    @field:Size(max = 300) val linkTitle: String? = null,
+    @field:Size(max = 255) val linkDomain: String? = null,
+)
+
+/** 투표 입력(옵션 2~10개). deadline은 ISO-8601, 라벨/D-day는 서버가 파생. */
+data class PollInput(
+    @field:Size(min = 2, max = 10, message = "투표 항목은 2~10개여야 합니다.")
+    val options: List<String>,
+    val anonymous: Boolean = false,
+    val multiSelect: Boolean = false,
+    val deadline: Instant? = null,
+)
+
+/** 모집 입력. deadline은 ISO-8601, 라벨/D-day는 서버가 파생. */
+data class RecruitInput(
+    @field:Min(value = 1, message = "정원은 1명 이상이어야 합니다.")
+    val capacity: Int,
+    val deadline: Instant? = null,
+    @field:Size(max = 32) val method: String? = null,
 )
 
 data class UpdatePostRequest(
@@ -65,7 +102,46 @@ data class PostDetailResponse(
     val isPinned: Boolean,
     val isAuthorLeader: Boolean,
     val isMine: Boolean,
+    val attachments: List<AttachmentResponse>,
+    val poll: PollResponse?,
+    val recruit: RecruitResponse?,
     val comments: List<CommentResponse>,
+)
+
+/** 첨부 응답(다형 flat). fileSize는 sizeBytes 파생 라벨. */
+data class AttachmentResponse(
+    val type: String,
+    val imageLabel: String?,
+    val fileName: String?,
+    val fileSize: String?,
+    val linkTitle: String?,
+    val linkDomain: String?,
+)
+
+/** 투표 표시. C1b에선 votes/myVotes는 0/빈값(실투표는 C2). */
+data class PollResponse(
+    val anonymous: Boolean,
+    val multiSelect: Boolean,
+    val deadlineLabel: String?,
+    val dday: String?,
+    val totalVotes: Int,
+    val myVotes: List<Int>,
+    val options: List<PollOptionResponse>,
+)
+
+data class PollOptionResponse(val index: Int, val label: String, val votes: Int, val percent: Int)
+
+/** 모집 표시. C1b에선 current/appliedByMe는 0/false(실신청은 C2). */
+data class RecruitResponse(
+    val status: String,
+    val capacity: Int,
+    val current: Int,
+    val remaining: Int,
+    val percent: Int,
+    val deadlineLabel: String?,
+    val dday: String?,
+    val method: String?,
+    val appliedByMe: Boolean,
 )
 
 data class CommentResponse(
