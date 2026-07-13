@@ -70,4 +70,8 @@ object StorageKeys {
     /** 프로필 사진: profiles/{userId}/{uuid}/{name}. */
     fun forProfile(userId: Long, fileName: String): String =
         "profiles/$userId/${UUID.randomUUID()}/${sanitize(fileName)}"
+
+    /** 동아리 대표 이미지: clubs/{clubId}/{uuid}/{name}. */
+    fun forClub(clubId: Long, fileName: String): String =
+        "clubs/$clubId/${UUID.randomUUID()}/${sanitize(fileName)}"
 }
