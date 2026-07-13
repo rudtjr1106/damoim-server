@@ -47,4 +47,8 @@ data class SubscribeRequest(
     val tier: String,                 // STANDARD / PRO
     @field:Size(max = 30)
     val channel: String = "App Store",
+    // 결제 증빙(서버 재검증용). verify-purchases=true면 필수.
+    @field:Size(max = 20) val platform: String? = null,      // APP_STORE / PLAY
+    @field:Size(max = 255) val productId: String? = null,
+    @field:Size(max = 8192) val purchaseToken: String? = null, // iOS=JWS, Android=purchaseToken
 )

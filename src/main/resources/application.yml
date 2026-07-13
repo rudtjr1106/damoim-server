@@ -67,3 +67,10 @@ app:
       cron: ${STORAGE_ORPHAN_CRON:0 0 4 * * *}         # 매일 04:00
   request:
     max-body-bytes: ${MAX_BODY_BYTES:1048576}            # JSON 요청 본문 상한 1MB(DoS 방지)
+  billing:
+    verify-purchases: ${BILLING_VERIFY:false}            # 구독 시 스토어 결제 증빙 재검증(운영=true, fail-closed)
+    standard-product-id: ${BILLING_STANDARD_PRODUCT:com.damoim.app.subscription.standard}
+    pro-product-id: ${BILLING_PRO_PRODUCT:com.damoim.app.subscription.pro}
+    apple:
+      bundle-id: ${APPLE_BUNDLE_ID:}                     # 앱 번들 ID(JWS bundleId 대조)
+      root-cert-path: ${APPLE_ROOT_CERT_PATH:}           # Apple 루트 CA(AppleRootCA-G3.cer) 경로. 미설정=검증 불가

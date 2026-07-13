@@ -1,5 +1,6 @@
 package com.damoim.server.settings
 
+import com.damoim.server.billing.PurchaseVerifier
 import com.damoim.server.club.MembershipService
 import com.damoim.server.common.BadRequestException
 import com.damoim.server.common.NotFoundException
@@ -32,6 +33,7 @@ class SubscriptionService(
     private val planFeatureRepository: PlanFeatureRepository,
     private val paymentRecordRepository: PaymentRecordRepository,
     private val clubMemberRepository: ClubMemberRepository,
+    private val purchaseVerifier: PurchaseVerifier,
 ) {
     /** 상태는 활성 회원 누구나(26 설정홈 표시용). 결제 내역(payments)은 동아리장에게만 노출. */
     @Transactional(readOnly = true)
@@ -74,6 +76,8 @@ class SubscriptionService(
         if (current != null && current.tier == tier && current.status == SubscriptionStatus.ACTIVE) {
             return toState(current, clubId, isLeader = true)
         }
+        // 결제 증빙 스토어 재검증(fail-closed) — 우회 후 직접 호출 무료 구독 차단. verify-purchases=false면 통과(dev).
+        purchaseVerifier.verify(req.platform, req.productId, req.purchaseToken, tier)
         val now = Instant.now()
         val sub = (current ?: Subscription().apply { this.clubId = clubId }).apply {
             this.tier = tier

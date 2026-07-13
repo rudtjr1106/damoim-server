@@ -44,6 +44,9 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 
+    // ── JOSE (Apple StoreKit 2 JWS 서명 트랜잭션 검증: ES256 + x5c) ──
+    implementation("com.nimbusds:nimbus-jose-jwt:9.40")
+
     // ── 파일 스토리지 (S3, presigned URL) ──
     implementation(platform("software.amazon.awssdk:bom:2.47.5"))
     implementation("software.amazon.awssdk:s3")
