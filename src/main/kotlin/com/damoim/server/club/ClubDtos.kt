@@ -16,6 +16,33 @@ data class CreateClubRequest(
     val intro: String = "",
 )
 
+// ── 요청: 동아리 정보 수정(08) — LEADER ──
+/** 대표 이미지 업로드 URL 요청(1단계). presigned PUT 후 imageKey를 PATCH /me에 전달. */
+data class ClubImageUploadRequest(
+    @field:Size(max = 255) val fileName: String? = null,
+    @field:Size(max = 255) val contentType: String? = null,
+    @field:jakarta.validation.constraints.Min(value = 1, message = "파일 크기가 올바르지 않습니다.")
+    val sizeBytes: Long,
+)
+
+/** 대표 이미지 업로드 URL 응답 — 클라가 이 URL로 S3에 직접 PUT 후 imageKey를 수정 요청에 전달. */
+data class ClubImageUploadResponse(
+    val uploadUrl: String,
+    val storageKey: String,
+    val expiresInSeconds: Long,
+)
+
+/** 동아리 정보 수정(08). null인 필드는 변경하지 않는다(부분 수정). */
+data class UpdateClubRequest(
+    @field:Size(max = 100, message = "이름은 100자 이하여야 합니다.")
+    val name: String? = null,
+    @field:Size(max = 2000, message = "소개는 2000자 이하여야 합니다.")
+    val intro: String? = null,
+    /** 앱에서 presigned PUT으로 올린 대표 이미지의 S3 키. 서버가 소유권 검증 후 저장. */
+    @field:Size(max = 1024)
+    val imageKey: String? = null,
+)
+
 // ── 응답 ──
 data class ClubResponse(
     val id: Long,
@@ -26,10 +53,11 @@ data class ClubResponse(
     val joinCodeActive: Boolean,
     val memberCount: Int,
     val emblemColor: Long,
+    val imageUrl: String?,            // 대표 이미지 presigned view URL(없으면 null → 이니셜 로고)
 ) {
     companion object {
         /** joinCode는 운영 비밀 — LEADER에게만 노출(includeJoinCode=false면 감춤). */
-        fun from(c: Club, memberCount: Int, includeJoinCode: Boolean = true) = ClubResponse(
+        fun from(c: Club, memberCount: Int, includeJoinCode: Boolean = true, imageUrl: String? = null) = ClubResponse(
             id = c.id,
             name = c.name,
             category = c.category,
@@ -38,6 +66,7 @@ data class ClubResponse(
             joinCodeActive = c.joinCodeActive,
             memberCount = memberCount,
             emblemColor = c.emblemColor,
+            imageUrl = imageUrl,
         )
     }
 }

@@ -1,5 +1,6 @@
 package com.damoim.server.club
 
+import com.damoim.server.common.BadRequestException
 import com.damoim.server.common.ConflictException
 import com.damoim.server.common.ForbiddenException
 import com.damoim.server.common.NotFoundException
@@ -16,6 +17,8 @@ import com.damoim.server.domain.repository.CohortRepository
 import com.damoim.server.domain.repository.JoinApplicationRepository
 import com.damoim.server.domain.repository.NotificationRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.storage.StorageKeys
+import com.damoim.server.storage.StorageService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -29,7 +32,10 @@ class ClubService(
     private val notificationRepository: NotificationRepository,
     private val userRepository: UserRepository,
     private val membership: MembershipService,
+    private val storageService: StorageService,
 ) {
+    /** 대표 이미지 키가 있으면 presigned view URL로 파생(프로필 사진과 동일 패턴). */
+    private fun imageUrlOf(club: Club): String? = club.imageKey?.let { storageService.presignView(it) }
     /** 동아리 생성 — 생성자는 LEADER로 자동 가입, '1기' 기본 기수 생성, 활성 동아리 지정. */
     @Transactional
     fun create(userId: Long, req: CreateClubRequest): ClubResponse {
@@ -62,7 +68,7 @@ class ClubService(
         )
         user.activeClubId = club.id
         userRepository.save(user)
-        return ClubResponse.from(club, memberCount = 1)
+        return ClubResponse.from(club, memberCount = 1, imageUrl = imageUrlOf(club))
     }
 
     @Transactional(readOnly = true)
@@ -71,7 +77,40 @@ class ClubService(
         val club = clubRepository.findById(member.clubId)
             .orElseThrow { NotFoundException("동아리를 찾을 수 없습니다.") }
         val isLeader = member.memberRole == MemberRole.LEADER
-        return ClubResponse.from(club, activeMemberCount(member.clubId), includeJoinCode = isLeader)
+        return ClubResponse.from(club, activeMemberCount(member.clubId), includeJoinCode = isLeader, imageUrl = imageUrlOf(club))
+    }
+
+    /** 대표 이미지 업로드 URL 발급(08) — LEADER. 클라가 이 URL로 S3에 직접 PUT 후 imageKey를 PATCH /me에 전달. */
+    @Transactional(readOnly = true)
+    fun createImageUploadUrl(userId: Long, req: ClubImageUploadRequest): ClubImageUploadResponse {
+        val clubId = membership.requireLeader(userId).clubId
+        if (req.sizeBytes > CLUB_IMAGE_MAX_BYTES) throw BadRequestException("이미지가 너무 큽니다.", "FILE_TOO_LARGE")
+        val up = storageService.presignUpload(
+            StorageKeys.forClub(clubId, req.fileName?.takeIf { it.isNotBlank() } ?: "logo"),
+            req.contentType,
+        )
+        return ClubImageUploadResponse(up.url, up.key, up.expiresInSeconds)
+    }
+
+    /** 동아리 정보 수정(08) — LEADER. null 필드는 변경하지 않음. 이미지 키는 소유권·실오브젝트 검증 후 저장. */
+    @Transactional
+    fun updateClub(userId: Long, req: UpdateClubRequest): ClubResponse {
+        val member = membership.requireLeader(userId)
+        val club = clubRepository.findById(member.clubId)
+            .orElseThrow { NotFoundException("동아리를 찾을 수 없습니다.") }
+        req.name?.trim()?.takeIf { it.isNotEmpty() }?.let { club.name = it }
+        req.intro?.trim()?.let { club.description = it }
+        req.imageKey?.takeIf { it.isNotBlank() }?.let { key ->
+            if (!key.startsWith("clubs/${club.id}/")) {
+                throw ForbiddenException("잘못된 업로드 키입니다.", "INVALID_STORAGE_KEY")
+            }
+            if (storageService.verifiesSize && storageService.objectSizeOrNull(key) == null) {
+                throw BadRequestException("업로드가 완료되지 않았습니다.", "UPLOAD_INCOMPLETE")
+            }
+            club.imageKey = key
+        }
+        clubRepository.save(club)
+        return ClubResponse.from(club, activeMemberCount(club.id), includeJoinCode = true, imageUrl = imageUrlOf(club))
     }
 
     @Transactional(readOnly = true)
@@ -196,7 +235,7 @@ class ClubService(
             val club = clubs[m.clubId] ?: return@mapNotNull null
             val role = if (m.memberRole == MemberRole.LEADER) "LEADER" else "MEMBER"
             ClubMembershipResponse(
-                ClubResponse.from(club, activeMemberCount(club.id), includeJoinCode = false),
+                ClubResponse.from(club, activeMemberCount(club.id), includeJoinCode = false, imageUrl = imageUrlOf(club)),
                 role,
             )
         }
@@ -219,6 +258,7 @@ class ClubService(
             club,
             activeMemberCount(clubId),
             includeJoinCode = member.memberRole == MemberRole.LEADER,
+            imageUrl = imageUrlOf(club),
         )
     }
 
@@ -266,5 +306,9 @@ class ClubService(
             if (!clubRepository.existsByJoinCodeAndJoinCodeActiveIsTrue(code)) return code
         }
         throw IllegalStateException("가입 코드 생성에 실패했습니다.")
+    }
+
+    private companion object {
+        const val CLUB_IMAGE_MAX_BYTES = 5L * 1024 * 1024  // 대표 이미지 상한 5MB
     }
 }

@@ -27,6 +27,20 @@ class ClubController(private val clubService: ClubService) {
     fun myClub(@AuthenticationPrincipal principal: UserPrincipal): ClubResponse =
         clubService.myClub(principal.userId)
 
+    /** 동아리 정보 수정(08) — LEADER. 이름/소개/대표 이미지 키(부분 수정). */
+    @PatchMapping("/me")
+    fun updateClub(
+        @AuthenticationPrincipal principal: UserPrincipal,
+        @Valid @RequestBody req: UpdateClubRequest,
+    ): ClubResponse = clubService.updateClub(principal.userId, req)
+
+    /** 대표 이미지 업로드 URL 발급(1단계) — presigned PUT. 올린 뒤 key를 PATCH /me로 저장. */
+    @PostMapping("/me/image")
+    fun clubImageUploadUrl(
+        @AuthenticationPrincipal principal: UserPrincipal,
+        @Valid @RequestBody req: ClubImageUploadRequest,
+    ): ClubImageUploadResponse = clubService.createImageUploadUrl(principal.userId, req)
+
     /** 홈 요약(05/06). */
     @GetMapping("/me/home")
     fun home(@AuthenticationPrincipal principal: UserPrincipal): HomeSummaryResponse =

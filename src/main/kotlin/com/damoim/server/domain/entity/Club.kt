@@ -31,6 +31,10 @@ class Club {
     @Column(name = "emblem_color", nullable = false)
     var emblemColor: Long = 4281298387
 
+    /** 앱에서 올린 동아리 대표 이미지의 S3 키. 있으면 응답 imageUrl은 presigned view로 파생. */
+    @Column(name = "image_key", nullable = true, columnDefinition = "text")
+    var imageKey: String? = null
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant? = null
