@@ -24,9 +24,15 @@ interface StorageService {
     fun presignView(key: String): String
 
     fun delete(key: String)
+
+    /** 프리픽스 아래 오브젝트 목록(orphan 스윕용). 로컬 스텁은 빈 목록. */
+    fun listObjects(prefix: String): List<StoredObject>
 }
 
 data class PresignedUpload(val url: String, val key: String, val expiresInSeconds: Long)
+
+/** 스토리지 오브젝트 메타(orphan 판정용). */
+data class StoredObject(val key: String, val lastModifiedEpochMillis: Long)
 
 @ConfigurationProperties(prefix = "app.storage")
 data class StorageProperties(
@@ -34,8 +40,16 @@ data class StorageProperties(
     val quotaBytes: Long,
     val presignExpirySeconds: Long,
     val s3: S3Props,
+    val orphanSweep: OrphanSweep = OrphanSweep(),
 ) {
     data class S3Props(val bucket: String, val region: String)
+
+    /** orphan 스윕 배치 설정. [graceHours]는 업로드 후 등록 대기 중인 오브젝트를 오삭제하지 않기 위한 유예. */
+    data class OrphanSweep(
+        val enabled: Boolean = false,
+        val graceHours: Long = 24,
+        val cron: String = "0 0 4 * * *",
+    )
 }
 
 /** 스토리지 오브젝트 키 생성. 도메인별 프리픽스로 소유권 검증(크로스테넌트 차단)에 사용. */
