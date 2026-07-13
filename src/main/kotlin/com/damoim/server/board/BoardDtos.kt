@@ -88,6 +88,10 @@ data class UpdatePostRequest(
     @field:NotBlank(message = "내용은 필수입니다.")
     @field:Size(max = 20000)
     val content: String,
+    // 수정 시 첨부 전체 집합(기존 이미지/문서는 storageKey로 재참조, 새 것만 실업로드 키). 서버가 전체 교체.
+    @field:Valid
+    @field:Size(max = 10, message = "첨부는 최대 10개입니다.")
+    val attachments: List<AttachmentInput> = emptyList(),
 )
 
 // ── 응답 ──
@@ -147,6 +151,7 @@ data class AttachmentResponse(
     val linkTitle: String?,
     val linkDomain: String?,
     val linkUrl: String?,       // LINK 전체 URL(웹 이동)
+    val storageKey: String?,    // IMAGE/FILE_DOC — 수정 시 기존 첨부 재참조용
 )
 
 /** 투표 표시. C1b에선 votes/myVotes는 0/빈값(실투표는 C2). */
