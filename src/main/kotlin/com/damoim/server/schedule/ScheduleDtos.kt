@@ -44,6 +44,7 @@ data class EventResponse(
     val form: List<FormQuestionResponse>,
     val applicants: List<ApplicantResponse>,   // 리더: 전체+응답 / 일반: APPLIED만·응답 없음
     val appliedByMe: Boolean,
+    val isMine: Boolean,                        // 모집장(작성자=host) 여부 — true면 신청 대신 신청자 목록
 )
 
 data class FormQuestionResponse(
