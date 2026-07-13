@@ -148,8 +148,9 @@ class BoardService(
         return mapDetail(userId, member.clubId, post)
     }
 
-    private fun persistRichContent(clubId: Long, postId: Long, req: CreatePostRequest) {
-        req.attachments.forEachIndexed { i, a ->
+    /** 첨부(이미지/문서/링크) 저장 — 생성·수정 공용. 이미지/문서는 storageKey 검증, 링크는 URL 검증. */
+    private fun persistAttachments(clubId: Long, postId: Long, attachments: List<AttachmentInput>) {
+        attachments.forEachIndexed { i, a ->
             val type = AttachmentType.valueOf(a.type)
             postAttachmentRepository.save(
                 PostAttachment().apply {
@@ -184,6 +185,10 @@ class BoardService(
                 },
             )
         }
+    }
+
+    private fun persistRichContent(clubId: Long, postId: Long, req: CreatePostRequest) {
+        persistAttachments(clubId, postId, req.attachments)
         req.poll?.let { p ->
             val opts = p.options.map { it.trim() }.filter { it.isNotEmpty() }
             if (opts.size < 2) throw BadRequestException("투표 항목은 2개 이상이어야 합니다.")
@@ -229,6 +234,10 @@ class BoardService(
         post.title = req.title.trim()
         post.content = req.content
         boardPostRepository.save(post)
+        // 첨부 전체 교체(수정 시 추가/삭제/순서 반영). 기존 이미지/문서는 클라가 storageKey로 재전송,
+        // 새로 추가한 것만 실업로드된 키가 온다. 투표/모집은 별도(불변, 미변경).
+        postAttachmentRepository.deleteByPostId(post.id)
+        persistAttachments(member.clubId, post.id, req.attachments)
         return mapDetail(userId, member.clubId, post)
     }
 
@@ -312,6 +321,7 @@ class BoardService(
         linkTitle = a.linkTitle,
         linkDomain = a.linkDomain,
         linkUrl = a.linkUrl,
+        storageKey = a.storageKey,     // 수정 시 기존 이미지/문서 재참조용(presigned URL에도 포함됨)
     )
 
     private data class VerifiedMedia(val key: String, val sizeBytes: Long?)
