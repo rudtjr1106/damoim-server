@@ -17,6 +17,10 @@ interface ResourceRepository : JpaRepository<Resource, Long> {
     @Query("update Resource r set r.downloadCount = r.downloadCount + 1 where r.id = :id")
     fun incrementDownload(@Param("id") id: Long): Int
 
+    /** orphan 스윕 — 살아있는(미삭제) 자료의 storage 키. 소프트삭제된 자료는 이미 오브젝트가 지워졌다. */
+    @Query("select r.storageUrl from Resource r where r.deletedAt is null and r.storageUrl is not null")
+    fun findLiveStorageKeys(): List<String>
+
     /**
      * 가시성 필터 목록. seeAll(운영진)이면 전체, 아니면 ALL_MEMBERS + 내 기수(cohortId)가 포함된 COHORT_ONLY만.
      * cohortId가 null이면(기수 미배정) COHORT_ONLY는 안 보임.

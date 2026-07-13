@@ -15,6 +15,10 @@ interface PostAttachmentRepository : JpaRepository<PostAttachment, Long> {
     @Query("delete from PostAttachment a where a.postId = :postId")
     fun deleteByPostId(@Param("postId") postId: Long)
 
+    /** orphan 스윕 — 참조 중인 전 첨부 storageKey. */
+    @Query("select a.storageKey from PostAttachment a where a.storageKey is not null")
+    fun findAllStorageKeys(): List<String>
+
     /** 목록 썸네일 여부 배치 — 이미지 첨부를 가진 postId들. */
     @Query("select distinct a.postId from PostAttachment a where a.postId in :postIds and a.type = :type")
     fun findPostIdsWithType(@Param("postIds") postIds: Collection<Long>, @Param("type") type: AttachmentType): List<Long>

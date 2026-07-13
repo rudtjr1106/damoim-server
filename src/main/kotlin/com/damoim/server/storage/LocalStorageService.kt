@@ -25,4 +25,6 @@ class LocalStorageService(private val props: StorageProperties) : StorageService
         "http://localhost:8080/_localstorage/$key?op=view"
 
     override fun delete(key: String) { /* 스텁 — no-op */ }
+
+    override fun listObjects(prefix: String): List<StoredObject> = emptyList()  // 스텁 — 실오브젝트 없음
 }

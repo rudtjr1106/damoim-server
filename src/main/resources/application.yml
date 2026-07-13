@@ -61,5 +61,9 @@ app:
     s3:
       bucket: ${S3_BUCKET:}
       region: ${S3_REGION:ap-northeast-2}
+    orphan-sweep:
+      enabled: ${STORAGE_ORPHAN_SWEEP:false}          # S3 orphan 정리 배치(운영 S3에서만 켬)
+      grace-hours: ${STORAGE_ORPHAN_GRACE_HOURS:24}    # 최근 업로드(등록 대기) 보호 유예
+      cron: ${STORAGE_ORPHAN_CRON:0 0 4 * * *}         # 매일 04:00
   request:
     max-body-bytes: ${MAX_BODY_BYTES:1048576}            # JSON 요청 본문 상한 1MB(DoS 방지)

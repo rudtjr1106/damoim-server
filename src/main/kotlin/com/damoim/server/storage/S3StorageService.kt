@@ -9,6 +9,7 @@ import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
 import software.amazon.awssdk.services.s3.model.GetObjectRequest
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import software.amazon.awssdk.services.s3.model.S3Exception
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
@@ -87,5 +88,19 @@ class S3StorageService(
 
     override fun delete(key: String) {
         s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build())
+    }
+
+    /** 프리픽스 아래 전 오브젝트를 페이지네이션으로 나열(orphan 스윕용). */
+    override fun listObjects(prefix: String): List<StoredObject> {
+        val out = mutableListOf<StoredObject>()
+        var token: String? = null
+        do {
+            val req = ListObjectsV2Request.builder().bucket(bucket).prefix(prefix)
+                .apply { token?.let { continuationToken(it) } }.build()
+            val resp = s3Client.listObjectsV2(req)
+            resp.contents().forEach { out += StoredObject(it.key(), it.lastModified().toEpochMilli()) }
+            token = if (resp.isTruncated == true) resp.nextContinuationToken() else null
+        } while (token != null)
+        return out
     }
 }
