@@ -72,6 +72,7 @@ class ScheduleService(
                 s, e,
                 appliedCount = e?.let { appliedCounts[it.id] ?: 0 } ?: 0,
                 appliedByMe = e != null && e.id in myApplied,
+                isMine = s.hostUserId == userId,
                 addedToMyCalendar = s.id in myCalendar,
                 form = emptyList(),
                 applicants = emptyList(),
@@ -103,7 +104,8 @@ class ScheduleService(
             applicants = loadApplicants(e.id, viewerIsLeader = member.memberRole == MemberRole.LEADER)
         }
         val hostName = s.hostUserId?.let { userRepository.findById(it).orElse(null)?.nickname } ?: ""
-        return buildResponse(s, e, appliedCount, appliedByMe, addedToMyCalendar(userId, s.id), form, applicants, hostName, today, now)
+        val isMine = s.hostUserId == userId
+        return buildResponse(s, e, appliedCount, appliedByMe, isMine, addedToMyCalendar(userId, s.id), form, applicants, hostName, today, now)
     }
 
     /** 리더는 취소 포함 전체+응답, 일반 회원은 APPLIED만·응답 마스킹(PII). */
@@ -334,6 +336,7 @@ class ScheduleService(
         e: Event?,
         appliedCount: Int,
         appliedByMe: Boolean,
+        isMine: Boolean,
         addedToMyCalendar: Boolean,
         form: List<FormQuestionResponse>,
         applicants: List<ApplicantResponse>,
@@ -353,6 +356,7 @@ class ScheduleService(
                 form = form,
                 applicants = applicants,
                 appliedByMe = appliedByMe,
+                isMine = isMine,
             )
         }
         return ScheduleResponse(
