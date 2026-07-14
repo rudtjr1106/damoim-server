@@ -17,6 +17,7 @@ data class MemberResponse(
     val email: String,
     val joinedLabel: String,    // "2026.06.18"
     val isMe: Boolean,
+    val profileImageUrl: String? = null,  // 내부 키면 presigned view URL, 아니면 외부(카카오) URL
 )
 
 /** 18 회원 상세 — 명부 회원 + 활동 요약(실집계). */
