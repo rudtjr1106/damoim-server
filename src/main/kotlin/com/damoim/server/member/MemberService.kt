@@ -6,6 +6,7 @@ import com.damoim.server.common.NotFoundException
 import com.damoim.server.common.TimeLabels
 import com.damoim.server.common.UnauthorizedException
 import com.damoim.server.domain.entity.ClubMember
+import com.damoim.server.domain.entity.User
 import com.damoim.server.domain.enums.ApplicantStatus
 import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.MemberStatus
@@ -16,6 +17,7 @@ import com.damoim.server.domain.repository.CohortRepository
 import com.damoim.server.domain.repository.CommentRepository
 import com.damoim.server.domain.repository.EventApplicationRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.storage.StorageService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -36,7 +38,12 @@ class MemberService(
     private val commentRepository: CommentRepository,
     private val eventApplicationRepository: EventApplicationRepository,
     private val adminProfileRepository: AdminProfileRepository,
+    private val storageService: StorageService,
 ) {
+    /** 프로필 사진 URL — 내부 업로드 키가 있으면 presigned view, 없으면 외부(카카오) URL(프로필 응답과 동일 우선순위). */
+    private fun imageUrlOf(u: User?): String? =
+        u?.let { it.profileImageKey?.let(storageService::presignView) ?: it.profileImageUrl }
+
     /** 16/17 명부 — 활동+휴면 전원. LEADER→STAFF→MEMBER, 가입순 정렬. */
     @Transactional(readOnly = true)
     fun list(userId: Long): List<MemberResponse> {
@@ -51,7 +58,7 @@ class MemberService(
             .map { m ->
                 val u = users[m.userId]
                 val isMe = m.userId == userId
-                toResponse(m, u?.nickname ?: "탈퇴한 사용자", visibleEmail(u?.email, isMe, viewerIsAdmin), isMe)
+                toResponse(m, u?.nickname ?: "탈퇴한 사용자", visibleEmail(u?.email, isMe, viewerIsAdmin), isMe, imageUrlOf(u))
             }
     }
 
@@ -60,7 +67,7 @@ class MemberService(
     fun myMember(userId: Long): MemberResponse {
         val member = membership.currentMembership(userId)
         val user = userRepository.findById(userId).orElseThrow { UnauthorizedException() }
-        return toResponse(member, user.nickname, user.email.orEmpty(), isMe = true)
+        return toResponse(member, user.nickname, user.email.orEmpty(), isMe = true, imageUrl = imageUrlOf(user))
     }
 
     /** 18 회원 상세 — 활동 요약은 실집계(게시글·이벤트·최근 활동). */
@@ -85,7 +92,7 @@ class MemberService(
         ).maxOrNull()
 
         return MemberDetailResponse(
-            member = toResponse(member, name, visibleEmail(user?.email, isMe, viewerIsAdmin), isMe),
+            member = toResponse(member, name, visibleEmail(user?.email, isMe, viewerIsAdmin), isMe, imageUrlOf(user)),
             cohortLabel = cohortLabel,
             postCount = postCount,
             eventCount = eventCount,
@@ -178,7 +185,7 @@ class MemberService(
         return member
     }
 
-    private fun toResponse(m: ClubMember, name: String, email: String, isMe: Boolean) = MemberResponse(
+    private fun toResponse(m: ClubMember, name: String, email: String, isMe: Boolean, imageUrl: String? = null) = MemberResponse(
         id = m.id,
         name = name,
         initials = initialsOf(name),
@@ -188,6 +195,7 @@ class MemberService(
         email = email,
         joinedLabel = TimeLabels.date(m.joinedAt),
         isMe = isMe,
+        profileImageUrl = imageUrl,
     )
 
     /**
