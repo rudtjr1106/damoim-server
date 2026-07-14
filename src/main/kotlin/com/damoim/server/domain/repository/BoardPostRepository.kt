@@ -57,6 +57,13 @@ interface BoardPostRepository : JpaRepository<BoardPost, Long> {
     )
     fun findPinned(@Param("clubId") clubId: Long, pageable: Pageable): List<BoardPost>
 
+    /** 홈(05/06) 게시판 미리보기 — 삭제 제외 최신순(필독 포함). */
+    @Query(
+        "select p from BoardPost p where p.clubId = :clubId and p.deletedAt is null " +
+            "order by p.createdAt desc",
+    )
+    fun findRecent(@Param("clubId") clubId: Long, pageable: Pageable): List<BoardPost>
+
     /** 검색 — 제목/본문/작성자(authorIds) 일치. authorIds는 닉네임 매칭 결과(빈 리스트 금지, 서비스에서 -1 보정). */
     @Query(
         """

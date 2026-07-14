@@ -75,6 +75,9 @@ object TimeLabels {
     /** "8월 14일 (목)" */
     fun midDate(d: LocalDate): String = "${d.monthValue}월 ${d.dayOfMonth}일 (${weekday(d)})"
 
+    /** "6.07 토" (홈 다가오는 일정 카드). */
+    fun homeDate(d: LocalDate): String = "${d.monthValue}.${"%02d".format(d.dayOfMonth)} ${weekday(d)}"
+
     /** "8월 14일 목요일" */
     fun longDate(d: LocalDate): String = "${d.monthValue}월 ${d.dayOfMonth}일 ${weekday(d)}요일"
 
