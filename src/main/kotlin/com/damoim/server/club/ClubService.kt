@@ -4,6 +4,7 @@ import com.damoim.server.common.BadRequestException
 import com.damoim.server.common.ConflictException
 import com.damoim.server.common.ForbiddenException
 import com.damoim.server.common.NotFoundException
+import com.damoim.server.common.TimeLabels
 import com.damoim.server.common.UnauthorizedException
 import com.damoim.server.domain.entity.Club
 import com.damoim.server.domain.entity.ClubMember
@@ -11,14 +12,18 @@ import com.damoim.server.domain.entity.Cohort
 import com.damoim.server.domain.enums.JoinStatus
 import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.MemberStatus
+import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.ClubMemberRepository
 import com.damoim.server.domain.repository.ClubRepository
 import com.damoim.server.domain.repository.CohortRepository
+import com.damoim.server.domain.repository.CommentRepository
 import com.damoim.server.domain.repository.JoinApplicationRepository
 import com.damoim.server.domain.repository.NotificationRepository
+import com.damoim.server.domain.repository.ScheduleRepository
 import com.damoim.server.domain.repository.UserRepository
 import com.damoim.server.storage.StorageKeys
 import com.damoim.server.storage.StorageService
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -33,6 +38,9 @@ class ClubService(
     private val userRepository: UserRepository,
     private val membership: MembershipService,
     private val storageService: StorageService,
+    private val scheduleRepository: ScheduleRepository,
+    private val boardPostRepository: BoardPostRepository,
+    private val commentRepository: CommentRepository,
 ) {
     /** 대표 이미지 키가 있으면 presigned view URL로 파생(프로필 사진과 동일 패턴). */
     private fun imageUrlOf(club: Club): String? = club.imageKey?.let { storageService.presignView(it) }
@@ -123,6 +131,37 @@ class ClubService(
         val myCohortShort = member.cohortId?.let { cohortRepository.findById(it).orElse(null)?.short } ?: "-"
         val memberCount = activeMemberCount(clubId)
 
+        // 다가오는 일정 3건 — 아직 안 끝난 것(종료일 기준, 진행 중 다일정 포함), 날짜순. 첫 카드가 primary(강조).
+        val today = TimeLabels.todayKst()
+        val upcoming = scheduleRepository.findByClubIdOrderByScheduleDateAscCreatedAtAsc(clubId)
+            .filter { !(it.endDate ?: it.scheduleDate).isBefore(today) }
+            .take(3)
+        val schedules = upcoming.mapIndexed { i, s ->
+            UpcomingScheduleDto(
+                id = s.id,
+                dday = TimeLabels.ddayFromDate(s.scheduleDate, today),
+                date = TimeLabels.homeDate(s.scheduleDate),
+                title = s.title,
+                subtitle = buildString {
+                    append(TimeLabels.koreanTime(s.startHour.toInt(), s.startMinute.toInt()))
+                    if (s.location.isNotBlank()) append(" · ${s.location}")
+                },
+                primary = i == 0,
+            )
+        }
+
+        // 게시판 미리보기 3건 — 최신순(필독 포함), 댓글 수 일괄 조회(N+1 방지).
+        val recentPosts = boardPostRepository.findRecent(clubId, PageRequest.of(0, 3))
+        val commentCounts = if (recentPosts.isEmpty()) {
+            emptyMap()
+        } else {
+            commentRepository.countByPosts(recentPosts.map { it.id })
+                .associate { (it[0] as Long) to (it[1] as Long).toInt() }
+        }
+        val boardPreviews = recentPosts.map {
+            BoardPreviewDto(id = it.id, category = it.category.name, title = it.title, commentCount = commentCounts[it.id] ?: 0)
+        }
+
         val alert: HomeAlertDto? = if (isLeader) {
             val pending = joinApplicationRepository
                 .findByClubIdAndStatusOrderByCreatedAtDesc(clubId, JoinStatus.PENDING).size
@@ -132,7 +171,15 @@ class ClubService(
                 null
             }
         } else {
-            null // 다가오는 일정 알림은 F 그룹 도입 후
+            // 일반회원: 가장 가까운 일정 D-day 알림 카드.
+            upcoming.firstOrNull()?.let { s ->
+                HomeAlertDto(
+                    title = s.title,
+                    subtitle = "${TimeLabels.midDate(s.scheduleDate)} ${TimeLabels.koreanTime(s.startHour.toInt(), s.startMinute.toInt())}",
+                    kind = "SCHEDULE",
+                    badge = TimeLabels.ddayFromDate(s.scheduleDate, today),
+                )
+            }
         }
 
         return HomeSummaryResponse(
@@ -144,8 +191,8 @@ class ClubService(
                 HomeStatDto(myCohortShort, "내 기수"),
             ),
             alert = alert,
-            schedules = emptyList(),
-            boardPreviews = emptyList(),
+            schedules = schedules,
+            boardPreviews = boardPreviews,
             hasUnreadNotification = notificationRepository.countUnread(userId) > 0,
         )
     }
