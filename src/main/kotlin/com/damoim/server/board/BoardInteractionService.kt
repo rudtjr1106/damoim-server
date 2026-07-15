@@ -40,6 +40,7 @@ class BoardInteractionService(
     private val commentRepository: CommentRepository,
     private val userRepository: UserRepository,
     private val aggregates: BoardAggregates,
+    private val storageService: com.damoim.server.storage.StorageService,
 ) {
     @Transactional
     fun toggleLike(userId: Long, postId: Long): LikeResponse {
@@ -141,11 +142,14 @@ class BoardInteractionService(
                 content = req.content.trim()
             },
         )
-        val name = userRepository.findById(userId).map { it.nickname }.orElse("나")
+        val u = userRepository.findById(userId).orElse(null)
+        val name = u?.nickname ?: "나"
+        val imageUrl = u?.profileImageKey?.let { storageService.presignView(it) } ?: u?.profileImageUrl
         return CommentResponse(
             id = saved.id,
             authorName = name,
             authorInitials = if (name.length <= 2) name else name.takeLast(2),
+            authorImageUrl = imageUrl,
             timeLabel = "방금 전",
             content = saved.content,
             isReply = saved.parentId != null,
