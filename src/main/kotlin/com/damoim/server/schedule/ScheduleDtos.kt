@@ -64,6 +64,7 @@ data class ApplicantResponse(
     val status: String,               // APPLIED / CANCELED
     val appliedLabel: String,         // "10분 전"
     val answers: List<QuestionAnswerDto>,
+    val imageUrl: String? = null,     // 신청자 프로필 사진(내부 presigned or 외부 URL). 없으면 null→이니셜
 )
 
 data class QuestionAnswerDto(val question: String, val answer: String)

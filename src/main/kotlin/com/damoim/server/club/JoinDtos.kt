@@ -5,9 +5,9 @@ import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
 
 /** 가입 신청 결과에 실을 최소 동아리 정보(승인 전 비회원 노출 최소화 — description·회원수·코드 제외). */
-data class ClubSummary(val id: Long, val name: String, val category: String, val emblemColor: Long) {
+data class ClubSummary(val id: Long, val name: String, val category: String, val emblemColor: Long, val imageUrl: String? = null) {
     companion object {
-        fun from(c: Club) = ClubSummary(c.id, c.name, c.category, c.emblemColor)
+        fun from(c: Club, imageUrl: String? = null) = ClubSummary(c.id, c.name, c.category, c.emblemColor, imageUrl)
     }
 }
 
@@ -39,6 +39,7 @@ data class ApplicantResponse(
     val appliedDate: String,      // "6.03" (created_at 파생)
     val timeAgo: String,          // "방금 전"
     val message: String?,
+    val imageUrl: String? = null, // 프로필 사진 presigned view URL(없으면 null → 이니셜 아바타)
 )
 
 data class ProcessedApplicantResponse(

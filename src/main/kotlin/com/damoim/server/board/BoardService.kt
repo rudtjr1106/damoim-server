@@ -289,7 +289,7 @@ class BoardService(
             readRate = readRateFor(post, clubId),
             attachments = postAttachmentRepository.findByPostIdOrderByPosition(post.id).map { toAttachment(it) },
             poll = pollRepository.findByPostId(post.id)?.let { aggregates.pollResponse(it, userId) },
-            recruit = recruitRepository.findByPostId(post.id)?.let { aggregates.recruitResponse(it, userId) },
+            recruit = recruitRepository.findByPostId(post.id)?.let { aggregates.recruitResponse(it, userId, includeApplicants = true) },
             comments = comments.map { toComment(it, post.authorId, commentAuthors) },
         )
     }

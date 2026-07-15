@@ -6,6 +6,8 @@ import com.damoim.server.domain.entity.Recruit
 import com.damoim.server.domain.repository.PollOptionRepository
 import com.damoim.server.domain.repository.PollVoteRepository
 import com.damoim.server.domain.repository.RecruitApplicationRepository
+import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.storage.StorageService
 import org.springframework.stereotype.Component
 
 /**
@@ -16,6 +18,8 @@ class BoardAggregates(
     private val pollOptionRepository: PollOptionRepository,
     private val pollVoteRepository: PollVoteRepository,
     private val recruitApplicationRepository: RecruitApplicationRepository,
+    private val userRepository: UserRepository,
+    private val storageService: StorageService,
 ) {
     fun pollResponse(poll: Poll, userId: Long): PollResponse {
         val options = pollOptionRepository.findByPollIdOrderByPosition(poll.id)
@@ -37,8 +41,22 @@ class BoardAggregates(
         )
     }
 
-    fun recruitResponse(recruit: Recruit, userId: Long): RecruitResponse {
+    fun recruitResponse(recruit: Recruit, userId: Long, includeApplicants: Boolean = false): RecruitResponse {
         val current = recruitApplicationRepository.countByRecruitId(recruit.id).toInt()
+        // 신청자 아바타 스택은 상세에서만(목록/홈 피드에서 켜면 카드마다 쿼리 → N+1).
+        val applicants = if (!includeApplicants) {
+            emptyList()
+        } else {
+            val apps = recruitApplicationRepository.findByRecruitIdOrderByCreatedAtAsc(recruit.id)
+            val users = userRepository.findAllById(apps.map { it.userId }).associateBy { it.id }
+            apps.mapNotNull { users[it.userId] }.map { u ->
+                RecruitApplicantResponse(
+                    name = u.nickname,
+                    initials = if (u.nickname.length <= 2) u.nickname else u.nickname.takeLast(2),
+                    imageUrl = u.profileImageKey?.let { storageService.presignView(it) } ?: u.profileImageUrl,
+                )
+            }
+        }
         return RecruitResponse(
             status = recruit.status.name,
             capacity = recruit.capacity,
@@ -49,6 +67,7 @@ class BoardAggregates(
             dday = recruit.deadline?.let { TimeLabels.dday(it) },
             method = recruit.method,
             appliedByMe = recruitApplicationRepository.existsByRecruitIdAndUserId(recruit.id, userId),
+            applicants = applicants,
         )
     }
 }
