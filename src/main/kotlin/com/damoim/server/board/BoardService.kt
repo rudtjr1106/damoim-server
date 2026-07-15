@@ -356,6 +356,14 @@ class BoardService(
 
     private fun summaryCtx(clubId: Long, userId: Long, posts: List<BoardPost>): SummaryCtx {
         val ids = posts.map { it.id }
+        // 모집글 진행률/마감은 상세뿐 아니라 목록·홈 카드에도 필요 — RECRUIT만 배치 조회.
+        val recruitPostIds = posts.filter { it.category == BoardCategory.RECRUIT }.map { it.id }
+        val recruits = if (recruitPostIds.isEmpty()) {
+            emptyMap()
+        } else {
+            recruitRepository.findByPostIdIn(recruitPostIds)
+                .associate { it.postId to aggregates.recruitResponse(it, userId) }
+        }
         return SummaryCtx(
             authors = resolveAuthors(clubId, posts.mapNotNull { it.authorId }),
             commentCounts = mapCounts(if (ids.isEmpty()) emptyList() else commentRepository.countByPosts(ids)),
@@ -364,6 +372,7 @@ class BoardService(
             thumbnails = if (ids.isEmpty()) emptyMap() else firstImageUrls(ids),
             readCounts = mapCounts(if (ids.isEmpty()) emptyList() else postReadRepository.countByPosts(ids)),
             memberCount = clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE).toInt(),
+            recruits = recruits,
         )
     }
 
@@ -400,6 +409,7 @@ class BoardService(
             hasThumbnail = p.id in ctx.thumbnails,
             thumbnailUrl = ctx.thumbnails[p.id],
             readRate = readRate,
+            recruit = ctx.recruits[p.id],
         )
     }
 
@@ -443,6 +453,7 @@ class BoardService(
         val thumbnails: Map<Long, String>,
         val readCounts: Map<Long, Int>,
         val memberCount: Int,
+        val recruits: Map<Long, RecruitResponse>,   // postId → 모집 요약(진행률·마감·D-day)
     )
 
     /** LIKE 메타문자 이스케이프('!' 이스케이프 문자 기준). '!' 먼저 이스케이프해야 이중처리 안 됨. */
