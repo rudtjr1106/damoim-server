@@ -267,8 +267,7 @@ class BoardService(
         val authors = resolveAuthors(clubId, listOfNotNull(post.authorId))
         val authorInfo = post.authorId?.let { authors[it] } ?: DELETED_AUTHOR
         val comments = commentRepository.findByPost(post.id)
-        val commentAuthorNames = userRepository.findAllById(comments.mapNotNull { it.authorId })
-            .associate { it.id to it.nickname }
+        val commentAuthors = userRepository.findAllById(comments.mapNotNull { it.authorId }).associateBy { it.id }
         return PostDetailResponse(
             id = post.id,
             category = post.category.name,
@@ -276,6 +275,7 @@ class BoardService(
             content = post.content,
             authorName = authorInfo.name,
             authorInitials = authorInfo.initials,
+            authorImageUrl = authorInfo.imageUrl,
             authorGisu = authorInfo.gisu,
             timeLabel = post.createdAt?.let { TimeLabels.ago(it) } ?: "",
             dateLabel = post.createdAt?.let { TimeLabels.date(it) } ?: "",
@@ -290,7 +290,7 @@ class BoardService(
             attachments = postAttachmentRepository.findByPostIdOrderByPosition(post.id).map { toAttachment(it) },
             poll = pollRepository.findByPostId(post.id)?.let { aggregates.pollResponse(it, userId) },
             recruit = recruitRepository.findByPostId(post.id)?.let { aggregates.recruitResponse(it, userId) },
-            comments = comments.map { toComment(it, post.authorId, commentAuthorNames) },
+            comments = comments.map { toComment(it, post.authorId, commentAuthors) },
         )
     }
 
@@ -340,12 +340,14 @@ class BoardService(
         return VerifiedMedia(k, size)
     }
 
-    private fun toComment(c: Comment, postAuthorId: Long?, names: Map<Long, String>): CommentResponse {
-        val name = c.authorId?.let { names[it] } ?: "탈퇴한 사용자"
+    private fun toComment(c: Comment, postAuthorId: Long?, users: Map<Long, com.damoim.server.domain.entity.User>): CommentResponse {
+        val u = c.authorId?.let { users[it] }
+        val name = u?.nickname ?: "탈퇴한 사용자"
         return CommentResponse(
             id = c.id,
             authorName = name,
             authorInitials = initials(name),
+            authorImageUrl = authorImageUrl(u),
             timeLabel = c.createdAt?.let { TimeLabels.ago(it) } ?: "",
             content = c.content,
             isReply = c.parentId != null,
@@ -410,6 +412,7 @@ class BoardService(
             thumbnailUrl = ctx.thumbnails[p.id],
             readRate = readRate,
             recruit = ctx.recruits[p.id],
+            authorImageUrl = a.imageUrl,
         )
     }
 
@@ -432,18 +435,23 @@ class BoardService(
     private fun resolveAuthors(clubId: Long, authorIds: Collection<Long>): Map<Long, AuthorInfo> {
         val ids = authorIds.distinct()
         if (ids.isEmpty()) return emptyMap()
-        val names = userRepository.findAllById(ids).associate { it.id to it.nickname }
+        val users = userRepository.findAllById(ids).associateBy { it.id }
         val members = clubMemberRepository.findByClubIdAndUserIdIn(clubId, ids).associateBy { it.userId }
         val cohorts = cohortRepository.findAllById(members.values.mapNotNull { it.cohortId }.distinct())
             .associate { it.id to it.short }
         return ids.associateWith { id ->
-            val name = names[id] ?: "탈퇴한 사용자"
+            val u = users[id]
+            val name = u?.nickname ?: "탈퇴한 사용자"
             val m = members[id]
-            AuthorInfo(name, initials(name), m?.cohortId?.let { cohorts[it] }, m?.memberRole == MemberRole.LEADER)
+            AuthorInfo(name, initials(name), m?.cohortId?.let { cohorts[it] }, m?.memberRole == MemberRole.LEADER, authorImageUrl(u))
         }
     }
 
-    private data class AuthorInfo(val name: String, val initials: String, val gisu: String?, val isLeader: Boolean)
+    /** 작성자 프로필 사진 URL — 내부 업로드 키가 있으면 presigned view, 없으면 외부(카카오) URL. */
+    private fun authorImageUrl(u: com.damoim.server.domain.entity.User?): String? =
+        u?.profileImageKey?.let { storageService.presignView(it) } ?: u?.profileImageUrl
+
+    private data class AuthorInfo(val name: String, val initials: String, val gisu: String?, val isLeader: Boolean, val imageUrl: String?)
 
     private class SummaryCtx(
         val authors: Map<Long, AuthorInfo>,
@@ -474,6 +482,6 @@ class BoardService(
         const val IMAGE_MAX_BYTES = 10L * 1024 * 1024  // 게시판 이미지 첨부 상한 10MB
         const val DOC_MAX_BYTES = 25L * 1024 * 1024     // 게시판 문서 첨부 상한 25MB
         val RECOMMENDED = listOf("모집", "공지", "일정", "회비")
-        val DELETED_AUTHOR = AuthorInfo("탈퇴한 사용자", "탈퇴", null, false)
+        val DELETED_AUTHOR = AuthorInfo("탈퇴한 사용자", "탈퇴", null, false, null)
     }
 }

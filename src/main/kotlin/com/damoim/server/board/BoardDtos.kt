@@ -114,6 +114,7 @@ data class PostSummaryResponse(
     val thumbnailUrl: String?,          // 첫 이미지 첨부의 presigned view URL(없으면 null)
     val readRate: Int?,
     val recruit: RecruitResponse? = null,   // RECRUIT 카테고리 카드의 진행률·마감(그 외 null)
+    val authorImageUrl: String? = null,     // 작성자 프로필 사진(없으면 null → 이니셜)
 )
 
 /** 상세(14/36). 첨부·투표·모집은 C1b, 좋아요/조회수 실집계는 C2에서 채운다. */
@@ -124,6 +125,7 @@ data class PostDetailResponse(
     val content: String,
     val authorName: String,
     val authorInitials: String,
+    val authorImageUrl: String?,        // 작성자 프로필 사진(없으면 null → 이니셜)
     val authorGisu: String?,
     val timeLabel: String,
     val dateLabel: String,
@@ -200,6 +202,7 @@ data class CommentResponse(
     val id: Long,
     val authorName: String,
     val authorInitials: String,
+    val authorImageUrl: String?,   // 작성자 프로필 사진(없으면 null → 이니셜)
     val timeLabel: String,
     val content: String,
     val isReply: Boolean,
