@@ -10,6 +10,7 @@ data class BlockedUserResponse(
     val initials: String,
     val blockedLabel: String,         // "2026.06.18 차단"
     val isWithdrawn: Boolean,
+    val imageUrl: String? = null,     // 내부 업로드 presigned view 또는 외부(카카오) URL
 )
 
 // ── 알림 설정(65) ──

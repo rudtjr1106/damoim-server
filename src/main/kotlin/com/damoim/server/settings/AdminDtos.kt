@@ -14,6 +14,7 @@ data class AdminMemberResponse(
     val cohortLabel: String,          // "23기" (기수 short)
     val title: String,                // "부회장" / "총무"
     val permissions: List<String>,    // PermissionType 이름 집합
+    val imageUrl: String? = null,     // 프로필 사진(없으면 이니셜 아바타)
 )
 
 /** 30 운영진 추가 후보 — 아직 운영진이 아닌 일반 회원. */
@@ -22,6 +23,7 @@ data class AdminCandidateResponse(
     val name: String,
     val initials: String,
     val cohortLabel: String,
+    val imageUrl: String? = null,
 )
 
 // ── 요청 ──

@@ -181,6 +181,14 @@ data class RecruitResponse(
     val dday: String?,
     val method: String?,
     val appliedByMe: Boolean,
+    val applicants: List<RecruitApplicantResponse> = emptyList(),   // 상세 신청자 아바타 스택(목록/홈은 빈 배열)
+)
+
+/** 모집 신청자(84 아바타 스택/명단). */
+data class RecruitApplicantResponse(
+    val name: String,
+    val initials: String,
+    val imageUrl: String?,
 )
 
 // ── 상호작용 요청/응답 ──

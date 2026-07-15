@@ -24,6 +24,7 @@ import com.damoim.server.domain.repository.FormQuestionRepository
 import com.damoim.server.domain.repository.MyCalendarEntryRepository
 import com.damoim.server.domain.repository.ScheduleRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.storage.StorageService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -44,6 +45,7 @@ class ScheduleService(
     private val userRepository: UserRepository,
     private val boardPostRepository: BoardPostRepository,
     private val support: ScheduleSupport,
+    private val storageService: StorageService,
 ) {
     // ── 조회 ──
 
@@ -113,10 +115,11 @@ class ScheduleService(
         val all = eventApplicationRepository.findByEventIdOrderByCreatedAtAsc(eventId)
         val visible = if (viewerIsLeader) all else all.filter { it.status == ApplicantStatus.APPLIED }
         if (visible.isEmpty()) return emptyList()
-        val names = userRepository.findAllById(visible.map { it.userId }).associate { it.id to it.nickname }
+        val users = userRepository.findAllById(visible.map { it.userId }).associateBy { it.id }
         val answers = if (viewerIsLeader) support.answersByApplication(visible.map { it.id }) else emptyMap()
         return visible.map { a ->
-            val name = names[a.userId] ?: "탈퇴한 사용자"
+            val user = users[a.userId]
+            val name = user?.nickname ?: "탈퇴한 사용자"
             ApplicantResponse(
                 id = a.id,
                 name = name,
@@ -125,6 +128,7 @@ class ScheduleService(
                 status = a.status.name,
                 appliedLabel = a.createdAt?.let { TimeLabels.ago(it) } ?: "",
                 answers = answers[a.id] ?: emptyList(),
+                imageUrl = user?.let { u -> u.profileImageKey?.let { storageService.presignView(it) } ?: u.profileImageUrl },
             )
         }
     }

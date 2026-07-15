@@ -6,6 +6,7 @@ import com.damoim.server.common.TimeLabels
 import com.damoim.server.domain.entity.ClubMember
 import com.damoim.server.domain.entity.JoinApplication
 import com.damoim.server.domain.entity.Notification
+import com.damoim.server.domain.entity.User
 import com.damoim.server.domain.enums.JoinStatus
 import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.MemberStatus
@@ -16,6 +17,7 @@ import com.damoim.server.domain.repository.CohortRepository
 import com.damoim.server.domain.repository.JoinApplicationRepository
 import com.damoim.server.domain.repository.NotificationRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.storage.StorageService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -28,6 +30,7 @@ class JoinService(
     private val joinApplicationRepository: JoinApplicationRepository,
     private val notificationRepository: NotificationRepository,
     private val userRepository: UserRepository,
+    private val storageService: StorageService,
     private val membership: MembershipService,
 ) {
     /** 가입 코드 제출(03) — 활성 코드로 동아리 조회 → 대기 신청 생성(멱등). */
@@ -48,7 +51,10 @@ class JoinService(
                 },
             )
         }
-        return JoinResultResponse(ClubSummary.from(club), JoinStatus.PENDING.name)
+        return JoinResultResponse(
+            ClubSummary.from(club, club.imageKey?.let { storageService.presignView(it) }),
+            JoinStatus.PENDING.name,
+        )
     }
 
     /** 가입 신청 관리(09) — LEADER만. */
@@ -62,16 +68,16 @@ class JoinService(
         )
         val all = pending + processed
         // 배치 조회로 N+1 제거(이름·희망기수)
-        val userNames = userRepository.findAllById(all.map { it.userId }).associate { it.id to it.nickname }
+        val users = userRepository.findAllById(all.map { it.userId }).associateBy { it.id }
         val cohortShorts = cohortRepository
             .findAllById(all.mapNotNull { it.desiredCohortId }.distinct())
             .associate { it.id to it.short }
 
         return ApplicantsBoardResponse(
-            pending = pending.map { toApplicant(it, userNames, cohortShorts) },
+            pending = pending.map { toApplicant(it, users, cohortShorts) },
             processed = processed.map {
                 ProcessedApplicantResponse(
-                    applicant = toApplicant(it, userNames, cohortShorts),
+                    applicant = toApplicant(it, users, cohortShorts),
                     approved = it.status == JoinStatus.APPROVED,
                     decidedLabel = it.decidedAt?.let { d -> TimeLabels.ago(d) } ?: "",
                 )
@@ -139,10 +145,11 @@ class JoinService(
 
     private fun toApplicant(
         app: JoinApplication,
-        userNames: Map<Long, String>,
+        users: Map<Long, User>,
         cohortShorts: Map<Long, String>,
     ): ApplicantResponse {
-        val name = userNames[app.userId] ?: "탈퇴한 사용자"
+        val user = users[app.userId]
+        val name = user?.nickname ?: "탈퇴한 사용자"
         val desiredGisu = app.desiredCohortId?.let { cohortShorts[it] }
         val created = app.createdAt ?: Instant.now()
         return ApplicantResponse(
@@ -153,6 +160,11 @@ class JoinService(
             appliedDate = TimeLabels.monthDay(created),
             timeAgo = TimeLabels.ago(created),
             message = app.message,
+            imageUrl = imageUrlOf(user),
         )
     }
+
+    /** 신청자 프로필 사진 URL — 내부 업로드 키가 있으면 presigned view, 없으면 외부(카카오) URL. */
+    private fun imageUrlOf(u: User?): String? =
+        u?.profileImageKey?.let { storageService.presignView(it) } ?: u?.profileImageUrl
 }

@@ -14,6 +14,7 @@ import com.damoim.server.domain.repository.AdminProfileRepository
 import com.damoim.server.domain.repository.ClubMemberRepository
 import com.damoim.server.domain.repository.CohortRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.storage.StorageService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -30,6 +31,7 @@ class AdminService(
     private val userRepository: UserRepository,
     private val adminProfileRepository: AdminProfileRepository,
     private val adminPermissionRepository: AdminPermissionRepository,
+    private val storageService: StorageService,
 ) {
     /** 30 운영진 목록(STAFF + 직함 + 권한). */
     @Transactional(readOnly = true)
@@ -37,14 +39,15 @@ class AdminService(
         val clubId = membership.requireLeader(userId).clubId
         val staff = clubMemberRepository.findByClubId(clubId).filter { it.memberRole == MemberRole.STAFF }
         if (staff.isEmpty()) return emptyList()
-        val users = userRepository.findAllById(staff.map { it.userId }).associate { it.id to it.nickname }
+        val users = userRepository.findAllById(staff.map { it.userId }).associateBy { it.id }
         val cohorts = cohortRepository.findAllById(staff.mapNotNull { it.cohortId }.distinct())
             .associate { it.id to it.short }
         val profiles = adminProfileRepository.findByClubMemberIdIn(staff.map { it.id }).associateBy { it.clubMemberId }
         val perms = adminPermissionRepository.findByAdminProfileIdIn(profiles.values.map { it.id })
             .groupBy { it.adminProfileId }
         return staff.map { m ->
-            val name = users[m.userId] ?: "탈퇴한 사용자"
+            val u = users[m.userId]
+            val name = u?.nickname ?: "탈퇴한 사용자"
             val profile = profiles[m.id]
             AdminMemberResponse(
                 userId = m.userId,
@@ -53,6 +56,7 @@ class AdminService(
                 cohortLabel = m.cohortId?.let { cohorts[it] } ?: "",
                 title = profile?.title ?: DEFAULT_TITLE,
                 permissions = profile?.let { perms[it.id].orEmpty().map { p -> p.permissionType.name } } ?: emptyList(),
+                imageUrl = imageUrlOf(u),
             )
         }
     }
@@ -64,16 +68,18 @@ class AdminService(
         val members = clubMemberRepository.findByClubId(clubId)
             .filter { it.memberRole == MemberRole.MEMBER && it.status == MemberStatus.ACTIVE && it.userId != userId }
         if (members.isEmpty()) return emptyList()
-        val users = userRepository.findAllById(members.map { it.userId }).associate { it.id to it.nickname }
+        val users = userRepository.findAllById(members.map { it.userId }).associateBy { it.id }
         val cohorts = cohortRepository.findAllById(members.mapNotNull { it.cohortId }.distinct())
             .associate { it.id to it.short }
         return members.map { m ->
-            val name = users[m.userId] ?: "탈퇴한 사용자"
+            val u = users[m.userId]
+            val name = u?.nickname ?: "탈퇴한 사용자"
             AdminCandidateResponse(
                 memberId = m.id,
                 name = name,
                 initials = initialsOf(name),
                 cohortLabel = m.cohortId?.let { cohorts[it] } ?: "",
+                imageUrl = imageUrlOf(u),
             )
         }
     }
@@ -165,6 +171,10 @@ class AdminService(
         }
 
     private fun initialsOf(name: String) = if (name.length >= 3) name.takeLast(2) else name
+
+    /** 프로필 사진 URL — 내부 업로드 키가 있으면 presigned view, 없으면 외부(카카오) URL. */
+    private fun imageUrlOf(u: com.damoim.server.domain.entity.User?): String? =
+        u?.profileImageKey?.let { storageService.presignView(it) } ?: u?.profileImageUrl
 
     private companion object {
         const val DEFAULT_TITLE = "운영진"
