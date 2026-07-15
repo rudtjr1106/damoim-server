@@ -113,6 +113,7 @@ data class PostSummaryResponse(
     val hasThumbnail: Boolean,
     val thumbnailUrl: String?,          // 첫 이미지 첨부의 presigned view URL(없으면 null)
     val readRate: Int?,
+    val recruit: RecruitResponse? = null,   // RECRUIT 카테고리 카드의 진행률·마감(그 외 null)
 )
 
 /** 상세(14/36). 첨부·투표·모집은 C1b, 좋아요/조회수 실집계는 C2에서 채운다. */
