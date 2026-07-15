@@ -123,4 +123,4 @@ data class UpcomingScheduleDto(
     val subtitle: String,
     val primary: Boolean,
 )
-data class BoardPreviewDto(val id: Long, val category: String, val title: String, val commentCount: Int)
+data class BoardPreviewDto(val id: Long, val category: String, val title: String, val commentCount: Int, val isPinned: Boolean = false)

@@ -150,8 +150,8 @@ class ClubService(
             )
         }
 
-        // 게시판 미리보기 3건 — 최신순(필독 포함), 댓글 수 일괄 조회(N+1 방지).
-        val recentPosts = boardPostRepository.findRecent(clubId, PageRequest.of(0, 3))
+        // 게시판 미리보기 3건 — 필독 먼저(isPinned desc)·최신순, 댓글 수 일괄 조회(N+1 방지).
+        val recentPosts = boardPostRepository.findFeed(clubId, null, PageRequest.of(0, 3))
         val commentCounts = if (recentPosts.isEmpty()) {
             emptyMap()
         } else {
@@ -159,7 +159,7 @@ class ClubService(
                 .associate { (it[0] as Long) to (it[1] as Long).toInt() }
         }
         val boardPreviews = recentPosts.map {
-            BoardPreviewDto(id = it.id, category = it.category.name, title = it.title, commentCount = commentCounts[it.id] ?: 0)
+            BoardPreviewDto(id = it.id, category = it.category.name, title = it.title, commentCount = commentCounts[it.id] ?: 0, isPinned = it.isPinned)
         }
 
         val alert: HomeAlertDto? = if (isLeader) {
