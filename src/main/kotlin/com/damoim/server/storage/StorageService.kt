@@ -41,8 +41,16 @@ data class StorageProperties(
     val presignExpirySeconds: Long,
     val s3: S3Props,
     val orphanSweep: OrphanSweep = OrphanSweep(),
+    val local: LocalProps = LocalProps(),
 ) {
     data class S3Props(val bucket: String, val region: String)
+
+    /**
+     * 로컬 스토리지(provider=local) 설정. [baseUrl]이 비어 있으면 presigned URL의 host/scheme를
+     * 요청에서 파생한다. 프록시(Tailscale 등) 뒤에서 파생이 어긋나면 STORAGE_LOCAL_BASE_URL로
+     * 명시(예: https://xxx.ts.net).
+     */
+    data class LocalProps(val baseUrl: String = "")
 
     /** orphan 스윕 배치 설정. [graceHours]는 업로드 후 등록 대기 중인 오브젝트를 오삭제하지 않기 위한 유예. */
     data class OrphanSweep(
