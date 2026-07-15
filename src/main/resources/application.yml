@@ -55,9 +55,13 @@ app:
     # 우리 카카오 앱 식별자. 미주입(0) 시 부팅 실패 — 토큰 발급 대상 앱 검증(confused-deputy 방지)에 필수.
     app-id: ${KAKAO_APP_ID:0}
   storage:
-    provider: ${STORAGE_PROVIDER:local}                  # local(개발 스텁) | s3
+    provider: ${STORAGE_PROVIDER:local}                  # local(개발 실동작 디스크) | s3
     quota-bytes: ${STORAGE_QUOTA_BYTES:5368709120}       # 동아리당 5GB
     presign-expiry-seconds: ${STORAGE_PRESIGN_EXPIRY:600}
+    local:
+      # provider=local의 presigned URL 베이스. 비우면 요청 주소에서 파생(프록시 뒤=X-Forwarded-* 반영).
+      # 실기기에서 host가 어긋나면 명시(예: https://xxx.ts.net).
+      base-url: ${STORAGE_LOCAL_BASE_URL:}
     s3:
       bucket: ${S3_BUCKET:}
       region: ${S3_REGION:ap-northeast-2}

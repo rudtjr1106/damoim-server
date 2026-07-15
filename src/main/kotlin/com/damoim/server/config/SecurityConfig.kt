@@ -50,6 +50,9 @@ class SecurityConfig {
 
             authorizeHttpRequests {
                 authorize("/api/auth/**", permitAll)
+                // 로컬 개발 스토리지(provider=local) — 클라가 presigned URL로 인증 없이 직접 PUT/GET.
+                // 운영(S3)에선 해당 컨트롤러가 없어 404이므로 무해.
+                authorize("/_localstorage/**", permitAll)
                 authorize("/api/ping", permitAll)
                 authorize("/actuator/health", permitAll)
                 authorize("/actuator/health/**", permitAll)

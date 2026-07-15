@@ -8,6 +8,11 @@ spring:
   jpa:
     show-sql: true
 
+# Tailscale/프록시(실기기 접속) 뒤에서 X-Forwarded-Proto/Host를 존중 →
+# 로컬 스토리지 presigned URL이 실제 접속 주소(https://xxx.ts.net)로 생성돼 기기에서 도달 가능.
+server:
+  forward-headers-strategy: framework
+
 # 카카오 app_id는 시크릿이 아닌 앱 식별자 — 로컬 부팅용 더미(실 카카오 로그인 시 KAKAO_APP_ID 주입).
 app:
   kakao:
