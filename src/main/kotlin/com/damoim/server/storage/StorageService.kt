@@ -49,8 +49,12 @@ data class StorageProperties(
      * 로컬 스토리지(provider=local) 설정. [baseUrl]이 비어 있으면 presigned URL의 host/scheme를
      * 요청에서 파생한다. 프록시(Tailscale 등) 뒤에서 파생이 어긋나면 STORAGE_LOCAL_BASE_URL로
      * 명시(예: https://xxx.ts.net).
+     *
+     * [dir]는 바이트 저장 루트. 비우면 java.io.tmpdir/damoim-localstorage(기존 동작 = 로컬 개발 기본값).
+     * 컨테이너 배포에선 반드시 영구 볼륨 경로를 STORAGE_LOCAL_DIR로 주입할 것 —
+     * 안 하면 컨테이너 재생성마다 업로드된 파일이 전부 사라진다(DB의 key만 남아 GET 404).
      */
-    data class LocalProps(val baseUrl: String = "")
+    data class LocalProps(val baseUrl: String = "", val dir: String = "")
 
     /** orphan 스윕 배치 설정. [graceHours]는 업로드 후 등록 대기 중인 오브젝트를 오삭제하지 않기 위한 유예. */
     data class OrphanSweep(

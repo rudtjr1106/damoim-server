@@ -5,7 +5,7 @@
 #   docker compose -f docker-compose.prod.yml up -d --build
 #   tailscale funnel --bg 8080     # 호스트에서 한 번 → 고정 https 주소 발급
 #
-# 재부팅/크래시에도 restart: always 로 자동 복구, DB는 볼륨에 영구 보존.
+# 재부팅/크래시에도 restart: always 로 자동 복구, DB·업로드 파일은 볼륨에 영구 보존.
 services:
   postgres:
     image: postgres:16
@@ -36,12 +36,18 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-dev}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 필요 — .env에 32바이트+ 고정값}
       KAKAO_APP_ID: ${KAKAO_APP_ID:?KAKAO_APP_ID 필요 — 카카오 숫자 앱ID(>0)}
-      # ── 파일 업로드(자료실)를 실제로 쓸 때만 S3 (선택). 미설정 시 로컬 스텁(실업로드 X) ──
+      # ── 파일 업로드(자료실/사진). 미설정 시 로컬 디스크(아래 볼륨)에 저장. S3로 옮기려면 STORAGE_PROVIDER=s3 ──
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      # provider=local의 파일 저장 위치 — 반드시 볼륨 마운트 경로여야 한다.
+      # (미지정 시 컨테이너 /tmp에 쌓여 재빌드·재생성마다 업로드 파일이 전부 사라진다)
+      STORAGE_LOCAL_DIR: /var/lib/damoim/storage
       S3_BUCKET: ${S3_BUCKET:-}
       S3_REGION: ${S3_REGION:-ap-northeast-2}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    # 업로드된 이미지·파일 바이트 보관 — 컨테이너를 재시작·재빌드해도 업로드 파일 보존.
+    volumes:
+      - damoim-storage:/var/lib/damoim/storage
     # 호스트 localhost에만 매핑 → Tailscale Funnel(호스트)이 localhost:8080을 외부로 프록시.
     # 같은 WiFi에서 LAN IP로도 직접 붙고 싶으면 "8080:8080" 으로 바꾼다.
     ports:
@@ -50,3 +56,4 @@ services:
 
 volumes:
   damoim-pgdata:
+  damoim-storage:   # 업로드 파일(프로필·동아리 사진, 게시판 첨부, 자료실) — down -v 하면 사진까지 삭제됨

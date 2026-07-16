@@ -10,7 +10,7 @@ import java.nio.file.Paths
 /**
  * 로컬 개발용 스토리지 — AWS 자격증명 없이 미디어 업로드/다운로드를 **실제로** 완성한다
  * (전엔 presign만 발급하고 저장/서빙은 안 하는 스텁이라 클라 PUT이 404로 실패했음).
- * 바이트는 [LocalStorage]가 tmp 디렉터리에 보관하고 [LocalStorageController]가 서빙한다.
+ * 바이트는 [LocalStorage]가 디스크(app.storage.local.dir, 미설정 시 tmp)에 보관하고 [LocalStorageController]가 서빙한다.
  * S3 설정(app.storage.provider=s3) 시 [S3StorageService]로 대체된다. 기본값(미설정)도 로컬.
  *
  * presigned URL의 host/scheme는 **요청이 들어온 주소에서 파생**한다 — localhost 하드코딩을 없애
@@ -20,6 +20,12 @@ import java.nio.file.Paths
 @Service
 @ConditionalOnProperty(name = ["app.storage.provider"], havingValue = "local", matchIfMissing = true)
 class LocalStorageService(private val props: StorageProperties) : StorageService {
+
+    // 저장 루트를 설정값(app.storage.local.dir)으로 확정한다. 부팅 시 1회 — 컨트롤러는 요청 시점에만
+    // LocalStorage를 만지므로 순서 안전. 디렉터리를 미리 만들어 권한 문제를 부팅에서 드러낸다(fail-fast).
+    init {
+        LocalStorage.configureRoot(props.local.dir)
+    }
 
     override val verifiesSize = true
 
@@ -53,9 +59,22 @@ class LocalStorageService(private val props: StorageProperties) : StorageService
     }
 }
 
-/** 로컬 스토리지 바이트 저장소(tmp 디렉터리). 경로 탈출(`..`)을 차단한다. */
+/**
+ * 로컬 스토리지 바이트 저장소. 경로 탈출(`..`)을 차단한다.
+ * 루트는 app.storage.local.dir로 재정의(미설정=tmp 디렉터리 — 기존 동작).
+ */
 object LocalStorage {
-    private val root: Path = Paths.get(System.getProperty("java.io.tmpdir"), "damoim-localstorage").toAbsolutePath().normalize()
+    private val defaultRoot: Path =
+        Paths.get(System.getProperty("java.io.tmpdir"), "damoim-localstorage").toAbsolutePath().normalize()
+
+    @Volatile
+    private var root: Path = defaultRoot
+
+    /** 부팅 시 [LocalStorageService]가 1회 호출. 빈 값이면 tmp 기본값(기존 동작) 유지. */
+    fun configureRoot(dir: String) {
+        root = if (dir.isBlank()) defaultRoot else Paths.get(dir).toAbsolutePath().normalize()
+        Files.createDirectories(root)
+    }
 
     fun resolve(key: String): Path {
         val target = root.resolve(key).normalize()
