@@ -37,3 +37,4 @@ enum class PlanTier { FREE, STANDARD, PRO }
 enum class SubscriptionStatus { ACTIVE, CANCELED }
 enum class PermissionType { NOTICE_WRITE, JOIN_APPROVE, BOARD_MANAGE, MEMBER_MANAGE, SCHEDULE_MANAGE, CLUB_SETTINGS }
 enum class NotificationType { JOIN_APPROVED, NOTICE, COMMENT, SCHEDULE, VOTE }
+enum class NotificationTargetType { POST, SCHEDULE }   // 알림 터치 시 이동 대상(없으면 NULL)

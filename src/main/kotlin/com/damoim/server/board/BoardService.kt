@@ -17,6 +17,8 @@ import com.damoim.server.domain.enums.AttachmentType
 import com.damoim.server.domain.enums.BoardCategory
 import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.MemberStatus
+import com.damoim.server.domain.enums.NotificationTargetType
+import com.damoim.server.domain.enums.NotificationType
 import com.damoim.server.domain.enums.RecruitStatus
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.ClubMemberRepository
@@ -30,8 +32,10 @@ import com.damoim.server.domain.repository.PostReadRepository
 import com.damoim.server.domain.repository.RecentSearchRepository
 import com.damoim.server.domain.repository.RecruitRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.notification.NotifyClubEvent
 import com.damoim.server.storage.StorageKeys
 import com.damoim.server.storage.StorageService
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -54,6 +58,7 @@ class BoardService(
     private val membership: MembershipService,
     private val aggregates: BoardAggregates,
     private val storageService: StorageService,
+    private val events: ApplicationEventPublisher,
 ) {
     // ── 조회 ──
     @Transactional(readOnly = true)
@@ -145,7 +150,25 @@ class BoardService(
             },
         )
         persistRichContent(member.clubId, post.id, req)
+        publishPostNotification(member.clubId, userId, post, req)
         return mapDetail(userId, member.clubId, post)
+    }
+
+    /**
+     * 새 글 알림 — 글 1개당 최대 1건(공지 우선, 그다음 투표). 일반 글은 알림 없음.
+     * 공지이면서 투표가 붙은 글도 NOTICE 하나만 나간다(중복 방지 규칙).
+     */
+    private fun publishPostNotification(clubId: Long, userId: Long, post: BoardPost, req: CreatePostRequest) {
+        val (type, text) = when {
+            post.category == BoardCategory.NOTICE ->
+                NotificationType.NOTICE to "새 공지가 등록됐어요: ${post.title.take(TITLE_CUT)}"
+            req.poll != null ->
+                NotificationType.VOTE to "'${post.title.take(TITLE_CUT)}' 투표가 시작됐어요"
+            else -> return
+        }
+        events.publishEvent(
+            NotifyClubEvent(clubId, userId, type, NotificationTargetType.POST, post.id, text),
+        )
     }
 
     /** 첨부(이미지/문서/링크) 저장 — 생성·수정 공용. 이미지/문서는 storageKey 검증, 링크는 URL 검증. */
@@ -479,6 +502,7 @@ class BoardService(
         const val LIST_LIMIT = 50
         const val RECENT_LIMIT = 10
         const val RECENT_KEEP = 20
+        const val TITLE_CUT = 60                        // 알림 문구에 넣을 제목 최대 길이
         const val IMAGE_MAX_BYTES = 10L * 1024 * 1024  // 게시판 이미지 첨부 상한 10MB
         const val DOC_MAX_BYTES = 25L * 1024 * 1024     // 게시판 문서 첨부 상한 25MB
         val RECOMMENDED = listOf("모집", "공지", "일정", "회비")
