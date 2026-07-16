@@ -66,10 +66,18 @@ data class StorageProperties(
 
 /** 스토리지 오브젝트 키 생성. 도메인별 프리픽스로 소유권 검증(크로스테넌트 차단)에 사용. */
 object StorageKeys {
-    private val UNSAFE = Regex("[^A-Za-z0-9._가-힣-]")
+    // 스토리지 키는 URL 경로에 그대로 실려 인코딩/디코딩 경계를 넘나든다. 비ASCII(한글)를 키에 남기면
+    // presigned URL의 인코딩과 서버가 읽는 키가 어긋나 업로드 검증이 깨지므로(UPLOAD_INCOMPLETE),
+    // 키는 ASCII만 허용해 provider(local/S3) 무관하게 인코딩 차이가 생길 여지를 없앤다.
+    // 사용자에게 보이는 원본 파일명은 DB(fileName)에 그대로 보관되고 다운로드 시 Content-Disposition으로
+    // 복원되므로 UX 손실은 없다. 키 경로에 UUID 디렉터리가 있어 이름 충돌도 없다.
+    // (기존에 만들어진 한글 키 오브젝트는 그대로 남고 읽기도 계속 동작한다 — 키 형식만 앞으로 ASCII.)
+    private val UNSAFE = Regex("[^A-Za-z0-9._-]")
 
+    // 점만 남는 이름(".", "..")은 경로 세그먼트로서 디렉터리를 가리키므로 "file"로 대체한다.
     private fun sanitize(fileName: String): String =
-        fileName.replace(UNSAFE, "_").takeLast(120).ifBlank { "file" }
+        fileName.replace(UNSAFE, "_").takeLast(120)
+            .let { if (it.isBlank() || it.all { c -> c == '.' }) "file" else it }
 
     /** 자료실: resources/{clubId}/{uuid}/{name}. */
     fun forResource(clubId: Long, fileName: String): String =
