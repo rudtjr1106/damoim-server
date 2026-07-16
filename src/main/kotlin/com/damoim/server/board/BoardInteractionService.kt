@@ -12,6 +12,8 @@ import com.damoim.server.domain.entity.PollVote
 import com.damoim.server.domain.entity.PostLike
 import com.damoim.server.domain.entity.RecruitApplication
 import com.damoim.server.domain.enums.MemberRole
+import com.damoim.server.domain.enums.NotificationTargetType
+import com.damoim.server.domain.enums.NotificationType
 import com.damoim.server.domain.enums.RecruitStatus
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.CommentRepository
@@ -22,6 +24,8 @@ import com.damoim.server.domain.repository.PostLikeRepository
 import com.damoim.server.domain.repository.RecruitApplicationRepository
 import com.damoim.server.domain.repository.RecruitRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.notification.NotifyUsersEvent
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -41,6 +45,7 @@ class BoardInteractionService(
     private val userRepository: UserRepository,
     private val aggregates: BoardAggregates,
     private val storageService: com.damoim.server.storage.StorageService,
+    private val events: ApplicationEventPublisher,
 ) {
     @Transactional
     fun toggleLike(userId: Long, postId: Long): LikeResponse {
@@ -125,10 +130,12 @@ class BoardInteractionService(
 
     @Transactional
     fun addComment(userId: Long, postId: Long, req: AddCommentRequest): CommentResponse {
-        val post = loadPost(membership.currentMembership(userId), postId)
+        val member = membership.currentMembership(userId)
+        val post = loadPost(member, postId)
         var parentId = req.parentId
+        var parent: Comment? = null
         if (parentId != null) {
-            val parent = commentRepository.findById(parentId).orElse(null)
+            parent = commentRepository.findById(parentId).orElse(null)
             if (parent == null || parent.postId != post.id || parent.deletedAt != null) {
                 throw BadRequestException("원 댓글을 찾을 수 없습니다.")
             }
@@ -145,6 +152,8 @@ class BoardInteractionService(
         val u = userRepository.findById(userId).orElse(null)
         val name = u?.nickname ?: "나"
         val imageUrl = u?.profileImageKey?.let { storageService.presignView(it) } ?: u?.profileImageUrl
+        // 알림 문구엔 응답용 "나" 폴백이 어색하므로 별도 표기
+        publishCommentNotifications(member.clubId, userId, post, parent, u?.nickname ?: "회원", saved.content)
         return CommentResponse(
             id = saved.id,
             authorName = name,
@@ -156,6 +165,43 @@ class BoardInteractionService(
             isAuthor = post.authorId == userId,
             parentId = saved.parentId,
         )
+    }
+
+    /**
+     * 댓글 알림 — 글 작성자에게 1건. 답글이면 답글 대상 댓글 작성자에게도 1건.
+     * 본인 글에 본인 댓글/본인 댓글에 본인 답글은 생략, 글 작성자와 댓글 작성자가 같으면 1건만.
+     * 수신자는 답글이 달린 **그 댓글**의 작성자(평탄화된 루트가 아님).
+     */
+    private fun publishCommentNotifications(
+        clubId: Long,
+        userId: Long,
+        post: BoardPost,
+        parent: Comment?,
+        actorName: String,
+        content: String,
+    ) {
+        val snippet = content.take(SNIPPET_CUT)
+        val postAuthor = post.authorId?.takeIf { it != userId }
+        if (postAuthor != null) {
+            events.publishEvent(
+                NotifyUsersEvent(
+                    clubId, listOf(postAuthor), NotificationType.COMMENT,
+                    NotificationTargetType.POST, post.id,
+                    "${actorName}님이 회원님의 글에 댓글을 남겼어요: \"$snippet\"",
+                ),
+            )
+        }
+        // 답글 대상 댓글 작성자 — 본인·글 작성자(위에서 이미 발송)와 중복 제거
+        val replyTo = parent?.authorId?.takeIf { it != userId && it != postAuthor }
+        if (replyTo != null) {
+            events.publishEvent(
+                NotifyUsersEvent(
+                    clubId, listOf(replyTo), NotificationType.COMMENT,
+                    NotificationTargetType.POST, post.id,
+                    "${actorName}님이 회원님의 댓글에 답글을 남겼어요: \"$snippet\"",
+                ),
+            )
+        }
     }
 
     @Transactional
@@ -180,4 +226,8 @@ class BoardInteractionService(
 
     private fun vote(pollId: Long, optionId: Long, userId: Long) =
         PollVote().apply { this.pollId = pollId; pollOptionId = optionId; this.userId = userId }
+
+    private companion object {
+        const val SNIPPET_CUT = 20   // 알림 문구에 넣을 댓글 내용 최대 길이
+    }
 }

@@ -14,6 +14,8 @@ import com.damoim.server.domain.enums.ApplicantStatus
 import com.damoim.server.domain.enums.BoardCategory
 import com.damoim.server.domain.enums.EventStatus
 import com.damoim.server.domain.enums.MemberRole
+import com.damoim.server.domain.enums.NotificationTargetType
+import com.damoim.server.domain.enums.NotificationType
 import com.damoim.server.domain.enums.QuestionType
 import com.damoim.server.domain.enums.ScheduleAccent
 import com.damoim.server.domain.enums.ScheduleType
@@ -24,7 +26,9 @@ import com.damoim.server.domain.repository.FormQuestionRepository
 import com.damoim.server.domain.repository.MyCalendarEntryRepository
 import com.damoim.server.domain.repository.ScheduleRepository
 import com.damoim.server.domain.repository.UserRepository
+import com.damoim.server.notification.NotifyClubEvent
 import com.damoim.server.storage.StorageService
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -46,6 +50,7 @@ class ScheduleService(
     private val boardPostRepository: BoardPostRepository,
     private val support: ScheduleSupport,
     private val storageService: StorageService,
+    private val events: ApplicationEventPublisher,
 ) {
     // ── 조회 ──
 
@@ -148,6 +153,18 @@ class ScheduleService(
             },
         )
         if (req.isEvent) persistEvent(schedule, req)
+        // 새 일정/이벤트 알림 — 동아리 활성 회원 전체(등록자 본인 제외)
+        val kind = if (req.isEvent) "이벤트가" else "일정이"
+        events.publishEvent(
+            NotifyClubEvent(
+                clubId = member.clubId,
+                actorUserId = userId,
+                type = NotificationType.SCHEDULE,
+                targetType = NotificationTargetType.SCHEDULE,
+                targetId = schedule.id,
+                text = "'${schedule.title.take(TITLE_CUT)}' $kind 등록됐어요 (${TimeLabels.shortDate(schedule.scheduleDate)})",
+            ),
+        )
         return schedule.id
     }
 
@@ -218,7 +235,7 @@ class ScheduleService(
     fun announce(userId: Long, scheduleId: Long) {
         val clubId = membership.requireLeader(userId).clubId
         val schedule = loadScheduleInClub(scheduleId, clubId)
-        boardPostRepository.save(
+        val post = boardPostRepository.save(
             BoardPost().apply {
                 this.clubId = clubId
                 category = BoardCategory.NOTICE
@@ -233,6 +250,18 @@ class ScheduleService(
                 authorId = userId
                 isPinned = true
             },
+        )
+        // 이 경로는 BoardService.create()를 거치지 않고 직접 INSERT하므로 알림 훅을 별도로 건다
+        // (두 경로는 상호 배타적 → NOTICE 중복 없음).
+        events.publishEvent(
+            NotifyClubEvent(
+                clubId = clubId,
+                actorUserId = userId,
+                type = NotificationType.NOTICE,
+                targetType = NotificationTargetType.POST,
+                targetId = post.id,
+                text = "새 공지가 등록됐어요: ${post.title.take(TITLE_CUT)}",
+            ),
         )
     }
 
@@ -412,4 +441,8 @@ class ScheduleService(
 
     private fun countMap(rows: List<Array<Any>>): Map<Long, Int> =
         rows.associate { (it[0] as Long) to (it[1] as Long).toInt() }
+
+    private companion object {
+        const val TITLE_CUT = 60   // 알림 문구에 넣을 제목 최대 길이
+    }
 }
