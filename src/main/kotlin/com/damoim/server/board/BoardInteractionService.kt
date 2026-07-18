@@ -129,6 +129,25 @@ class BoardInteractionService(
     }
 
     @Transactional
+    fun cancelRecruit(userId: Long, postId: Long): RecruitResponse {
+        val post = loadPost(membership.currentMembership(userId), postId)
+        val recruit = recruitRepository.findByPostId(post.id) ?: throw BadRequestException("모집이 없는 글입니다.")
+        // 취소·정원 재계산을 모집 행 락으로 직렬화(신청과 경쟁 방지)
+        recruitRepository.findByIdForUpdate(recruit.id)
+        val deleted = recruitApplicationRepository.deleteByRecruitIdAndUserId(recruit.id, userId)
+        if (deleted == 0L) throw ConflictException("신청 내역이 없습니다.", "NOT_APPLIED")
+        // 정원 도달로 자동 마감됐던 경우, 취소로 여유가 생기면 다시 연다(마감 기한이 안 지났을 때만).
+        if (recruit.status == RecruitStatus.CLOSED && recruit.deadline?.isBefore(Instant.now()) != true) {
+            val current = recruitApplicationRepository.countByRecruitId(recruit.id).toInt()
+            if (current < recruit.capacity) {
+                recruit.status = RecruitStatus.OPEN
+                recruitRepository.save(recruit)
+            }
+        }
+        return aggregates.recruitResponse(recruit, userId)
+    }
+
+    @Transactional
     fun addComment(userId: Long, postId: Long, req: AddCommentRequest): CommentResponse {
         val member = membership.currentMembership(userId)
         val post = loadPost(member, postId)
