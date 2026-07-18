@@ -100,28 +100,34 @@ class SubscriptionService(
         return toState(sub, clubId, isLeader = true)
     }
 
-    /** 구독 해지 → 무료 전환. LEADER. */
+    /**
+     * 구독 해지(50) — 즉시 무료 전환이 아니라 '해지 예약'. 갱신일(nextBillingAt)까지 유료 혜택과
+     * 결제 내역을 그대로 유지하고, 그 뒤 [toState]의 만료 지연평가로 무료가 된다. LEADER.
+     */
     @Transactional
     fun cancel(userId: Long): SubscriptionStateResponse {
         val clubId = membership.requireLeader(userId).clubId
         val sub = subscriptionRepository.findByClubId(clubId)
-        if (sub == null || sub.tier == PlanTier.FREE) {
+        if (sub == null || sub.tier == PlanTier.FREE || sub.status == SubscriptionStatus.CANCELED) {
             throw BadRequestException("구독 중이 아니에요.", "NOT_SUBSCRIBED")
         }
-        sub.tier = PlanTier.FREE
+        // tier/memberLimit/storageQuota/nextBillingAt 보존 — nextBillingAt이 이제 '이용 만료일'.
         sub.status = SubscriptionStatus.CANCELED
         sub.canceledAt = Instant.now()
-        sub.nextBillingAt = null
-        sub.memberLimit = freeLimit()
         subscriptionRepository.save(sub)
         return toState(sub, clubId, isLeader = true)
     }
 
     // ── 파생 ──
 
+    /** 해지 예약 후 갱신일이 지났으면 만료(무료 취급). subscribe/cancel/toState/집행이 공유. */
+    private fun isExpired(sub: Subscription?): Boolean =
+        sub != null && sub.status == SubscriptionStatus.CANCELED &&
+            (sub.nextBillingAt == null || !sub.nextBillingAt!!.isAfter(Instant.now()))
+
     private fun toState(sub: Subscription?, clubId: Long, isLeader: Boolean): SubscriptionStateResponse {
         val memberUsed = clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE).toInt()
-        if (sub == null || sub.tier == PlanTier.FREE) {
+        if (sub == null || sub.tier == PlanTier.FREE || isExpired(sub)) {
             return SubscriptionStateResponse(
                 tier = "FREE",
                 planName = "무료 플랜",
@@ -130,6 +136,7 @@ class SubscriptionService(
                 memberUsed = memberUsed,
                 memberLimit = freeLimit(),
                 payments = emptyList(),
+                canceled = false,
             )
         }
         val plan = subscriptionPlanRepository.findByTier(sub.tier)
@@ -152,6 +159,8 @@ class SubscriptionService(
             memberUsed = memberUsed,
             memberLimit = sub.memberLimit,
             payments = payments,
+            // 만료 전 해지 예약 상태 = '해지 예정'(갱신일까지 이용 가능)
+            canceled = sub.status == SubscriptionStatus.CANCELED,
         )
     }
 
