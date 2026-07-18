@@ -7,6 +7,9 @@ interface RecruitApplicationRepository : JpaRepository<RecruitApplication, Long>
     fun existsByRecruitIdAndUserId(recruitId: Long, userId: Long): Boolean
     fun countByRecruitId(recruitId: Long): Long
 
+    /** 모집 신청 취소 — 삭제된 행 수 반환(0이면 신청 내역 없음). */
+    fun deleteByRecruitIdAndUserId(recruitId: Long, userId: Long): Long
+
     /** 상세(84) 신청자 아바타 스택 — 신청순. */
     fun findByRecruitIdOrderByCreatedAtAsc(recruitId: Long): List<RecruitApplication>
 }

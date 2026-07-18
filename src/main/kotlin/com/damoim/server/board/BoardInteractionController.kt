@@ -37,6 +37,11 @@ class BoardInteractionController(private val interactions: BoardInteractionServi
     fun applyRecruit(@AuthenticationPrincipal p: UserPrincipal, @PathVariable id: Long): RecruitResponse =
         interactions.applyRecruit(p.userId, id)
 
+    /** 모집 신청 취소(취소로 여유 생기면 자동 재오픈). */
+    @DeleteMapping("/posts/{id}/recruit/apply")
+    fun cancelRecruit(@AuthenticationPrincipal p: UserPrincipal, @PathVariable id: Long): RecruitResponse =
+        interactions.cancelRecruit(p.userId, id)
+
     /** 댓글 작성(parentId 있으면 답글). */
     @PostMapping("/posts/{id}/comments")
     fun addComment(
