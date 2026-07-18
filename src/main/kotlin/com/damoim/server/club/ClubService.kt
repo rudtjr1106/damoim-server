@@ -193,7 +193,7 @@ class ClubService(
             alert = alert,
             schedules = schedules,
             boardPreviews = boardPreviews,
-            hasUnreadNotification = notificationRepository.countUnread(userId) > 0,
+            hasUnreadNotification = notificationRepository.countUnread(userId, clubId) > 0,
         )
     }
 
