@@ -17,4 +17,9 @@ interface NotificationRepository : JpaRepository<Notification, Long> {
     @Modifying
     @Query("update Notification n set n.isRead = true where n.userId = :userId and (n.clubId = :clubId or n.clubId is null) and n.isRead = false")
     fun markAllRead(@Param("userId") userId: Long, @Param("clubId") clubId: Long): Int
+
+    // 단건 읽음 — 소유권(userId)으로 스코프해 IDOR 차단. 남의 알림 id면 0행 no-op.
+    @Modifying
+    @Query("update Notification n set n.isRead = true where n.id = :id and n.userId = :userId and n.isRead = false")
+    fun markReadById(@Param("id") id: Long, @Param("userId") userId: Long): Int
 }

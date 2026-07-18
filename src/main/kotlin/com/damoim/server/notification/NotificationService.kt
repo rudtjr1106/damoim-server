@@ -22,4 +22,10 @@ class NotificationService(
     fun markAllRead(userId: Long) {
         notificationRepository.markAllRead(userId, membership.currentClubId(userId))
     }
+
+    /** 단건 읽음 처리(49) — 소유권으로 스코프. 남의 알림 id면 조용히 no-op. */
+    @Transactional
+    fun markRead(userId: Long, notificationId: Long) {
+        notificationRepository.markReadById(notificationId, userId)
+    }
 }
