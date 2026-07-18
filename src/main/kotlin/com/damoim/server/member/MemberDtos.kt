@@ -18,6 +18,8 @@ data class MemberResponse(
     val joinedLabel: String,    // "2026.06.18"
     val isMe: Boolean,
     val profileImageUrl: String? = null,  // 내부 키면 presigned view URL, 아니면 외부(카카오) URL
+    // /me(myMember)에서만 채운다 — 요청자 본인의 세분 권한(운영진 기능 클라 게이팅용). 리더=전권, STAFF=부여분, 일반=[].
+    val permissions: List<String> = emptyList(),
 )
 
 /** 18 회원 상세 — 명부 회원 + 활동 요약(실집계). */

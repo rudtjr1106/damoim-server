@@ -12,6 +12,7 @@ import com.damoim.server.domain.entity.Cohort
 import com.damoim.server.domain.enums.JoinStatus
 import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.MemberStatus
+import com.damoim.server.domain.enums.PermissionType
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.ClubMemberRepository
 import com.damoim.server.domain.repository.ClubRepository
@@ -91,7 +92,7 @@ class ClubService(
     /** 대표 이미지 업로드 URL 발급(08) — LEADER. 클라가 이 URL로 S3에 직접 PUT 후 imageKey를 PATCH /me에 전달. */
     @Transactional(readOnly = true)
     fun createImageUploadUrl(userId: Long, req: ClubImageUploadRequest): ClubImageUploadResponse {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.CLUB_SETTINGS).clubId
         if (req.sizeBytes > CLUB_IMAGE_MAX_BYTES) throw BadRequestException("이미지가 너무 큽니다.", "FILE_TOO_LARGE")
         val up = storageService.presignUpload(
             StorageKeys.forClub(clubId, req.fileName?.takeIf { it.isNotBlank() } ?: "logo"),
@@ -103,7 +104,7 @@ class ClubService(
     /** 동아리 정보 수정(08) — LEADER. null 필드는 변경하지 않음. 이미지 키는 소유권·실오브젝트 검증 후 저장. */
     @Transactional
     fun updateClub(userId: Long, req: UpdateClubRequest): ClubResponse {
-        val member = membership.requireLeader(userId)
+        val member = membership.requirePermission(userId, PermissionType.CLUB_SETTINGS)
         val club = clubRepository.findById(member.clubId)
             .orElseThrow { NotFoundException("동아리를 찾을 수 없습니다.") }
         req.name?.trim()?.takeIf { it.isNotEmpty() }?.let { club.name = it }
@@ -214,7 +215,7 @@ class ClubService(
     /** 가입 코드 재발급(LEADER). */
     @Transactional
     fun regenerateJoinCode(userId: Long): JoinCodeResponse {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.CLUB_SETTINGS).clubId
         val club = clubRepository.findById(clubId).orElseThrow { NotFoundException("동아리를 찾을 수 없습니다.") }
         club.joinCode = uniqueJoinCode()
         club.joinCodeActive = true
@@ -225,7 +226,7 @@ class ClubService(
     /** 가입 코드 비활성화(LEADER). */
     @Transactional
     fun disableJoinCode(userId: Long): JoinCodeResponse {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.CLUB_SETTINGS).clubId
         val club = clubRepository.findById(clubId).orElseThrow { NotFoundException("동아리를 찾을 수 없습니다.") }
         club.joinCodeActive = false
         clubRepository.save(club)
@@ -237,7 +238,7 @@ class ClubService(
     /** 새 기수 추가(44) — LEADER. 동아리 내 약칭 중복 금지. label 비면 short로 폴백. */
     @Transactional
     fun addCohort(userId: Long, req: CohortCreateRequest): CohortResponse {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.MEMBER_MANAGE).clubId
         val short = req.short.trim()
         val label = req.label.trim().ifEmpty { short }
         if (cohortRepository.existsByClubIdAndShort(clubId, short)) {
@@ -256,7 +257,7 @@ class ClubService(
     /** 기수 이름 변경(19) — LEADER. 기수는 내 동아리 소속만, 약칭 중복 금지(자기 자신 제외). */
     @Transactional
     fun renameCohort(userId: Long, cohortId: Long, req: CohortRenameRequest) {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.MEMBER_MANAGE).clubId
         val cohort = cohortRepository.findById(cohortId)
             .orElseThrow { NotFoundException("기수를 찾을 수 없습니다.") }
         if (cohort.clubId != clubId) throw NotFoundException("기수를 찾을 수 없습니다.")
