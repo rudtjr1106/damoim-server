@@ -10,6 +10,8 @@ interface PollVoteRepository : JpaRepository<PollVote, Long> {
     fun findByPollOptionIdAndUserId(pollOptionId: Long, userId: Long): PollVote?
     fun countByPollId(pollId: Long): Long
     fun deleteByPollIdAndUserId(pollId: Long, userId: Long)
+    /** 투표 재조정(수정) 시 해당 투표의 모든 표 제거. */
+    fun deleteByPollId(pollId: Long)
 
     /** 옵션별 득표수. 반환: [pollOptionId, count]. */
     @Query("select v.pollOptionId, count(v) from PollVote v where v.pollId = :pollId group by v.pollOptionId")

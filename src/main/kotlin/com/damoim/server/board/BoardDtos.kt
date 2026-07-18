@@ -92,6 +92,9 @@ data class UpdatePostRequest(
     @field:Valid
     @field:Size(max = 10, message = "첨부는 최대 10개입니다.")
     val attachments: List<AttachmentInput> = emptyList(),
+    // 수정 시 투표. null이면 투표 제거, 항목이 기존과 같으면 표 보존, 다르면 재생성.
+    @field:Valid
+    val poll: PollInput? = null,
 )
 
 // ── 응답 ──
