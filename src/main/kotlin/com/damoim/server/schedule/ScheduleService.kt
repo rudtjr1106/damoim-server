@@ -71,7 +71,7 @@ class ScheduleService(
             eventApplicationRepository.findAppliedEventIds(userId, eventIds, ApplicantStatus.APPLIED).toSet()
         val myCalendar = myCalendarEntryRepository.findByUserIdAndScheduleIdIn(userId, scheduleIds)
             .map { it.scheduleId }.toSet()
-        val hostNames = resolveHostNames(schedules)
+        val hostNames = resolveHostNames(clubId, schedules)
         val today = TimeLabels.todayKst()
         val now = Instant.now()
         return schedules.map { s ->
@@ -109,23 +109,25 @@ class ScheduleService(
             appliedByMe = eventApplicationRepository.findByEventIdAndUserId(e.id, userId)
                 ?.status == ApplicantStatus.APPLIED
             form = formQuestionRepository.findByEventIdOrderByPositionAsc(e.id).map(support::toFormQuestionResponse)
-            applicants = loadApplicants(e.id, viewerIsLeader = member.memberRole == MemberRole.LEADER)
+            applicants = loadApplicants(e.id, viewerIsLeader = member.memberRole == MemberRole.LEADER, clubId = member.clubId)
         }
-        val hostName = s.hostUserId?.let { userRepository.findById(it).orElse(null)?.nickname } ?: ""
+        // 44 호스트도 동아리별 표시 이름 우선.
+        val hostName = s.hostUserId?.let { membership.displayNamesFor(member.clubId, listOf(it))[it] } ?: ""
         val isMine = s.hostUserId == userId
         return buildResponse(s, e, appliedCount, appliedByMe, isMine, addedToMyCalendar(userId, s.id), form, applicants, hostName, today, now)
     }
 
     /** 리더는 취소 포함 전체+응답, 일반 회원은 APPLIED만·응답 마스킹(PII). */
-    private fun loadApplicants(eventId: Long, viewerIsLeader: Boolean): List<ApplicantResponse> {
+    private fun loadApplicants(eventId: Long, viewerIsLeader: Boolean, clubId: Long): List<ApplicantResponse> {
         val all = eventApplicationRepository.findByEventIdOrderByCreatedAtAsc(eventId)
         val visible = if (viewerIsLeader) all else all.filter { it.status == ApplicantStatus.APPLIED }
         if (visible.isEmpty()) return emptyList()
         val users = userRepository.findAllById(visible.map { it.userId }).associateBy { it.id }
+        val names = membership.displayNamesFor(clubId, visible.map { it.userId })   // 44 동아리별 표시 이름
         val answers = if (viewerIsLeader) support.answersByApplication(visible.map { it.id }) else emptyMap()
         return visible.map { a ->
             val user = users[a.userId]
-            val name = user?.nickname ?: "탈퇴한 사용자"
+            val name = names[a.userId] ?: "탈퇴한 사용자"
             ApplicantResponse(
                 id = a.id,
                 name = name,
@@ -418,10 +420,10 @@ class ScheduleService(
     private fun addedToMyCalendar(userId: Long, scheduleId: Long) =
         myCalendarEntryRepository.existsByUserIdAndScheduleId(userId, scheduleId)
 
-    private fun resolveHostNames(schedules: List<Schedule>): Map<Long, String> {
+    private fun resolveHostNames(clubId: Long, schedules: List<Schedule>): Map<Long, String> {
         val ids = schedules.mapNotNull { it.hostUserId }.distinct()
         if (ids.isEmpty()) return emptyMap()
-        return userRepository.findAllById(ids).associate { it.id to it.nickname }
+        return membership.displayNamesFor(clubId, ids)   // 44 동아리별 표시 이름
     }
 
     private fun loadScheduleInClub(scheduleId: Long, clubId: Long): Schedule {

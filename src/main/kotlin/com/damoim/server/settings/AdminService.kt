@@ -47,7 +47,7 @@ class AdminService(
             .groupBy { it.adminProfileId }
         return staff.map { m ->
             val u = users[m.userId]
-            val name = u?.nickname ?: "탈퇴한 사용자"
+            val name = m.displayName ?: u?.nickname ?: "탈퇴한 사용자"   // 44 동아리별 표시 이름
             val profile = profiles[m.id]
             AdminMemberResponse(
                 userId = m.userId,
@@ -73,7 +73,7 @@ class AdminService(
             .associate { it.id to it.short }
         return members.map { m ->
             val u = users[m.userId]
-            val name = u?.nickname ?: "탈퇴한 사용자"
+            val name = m.displayName ?: u?.nickname ?: "탈퇴한 사용자"   // 44 동아리별 표시 이름
             AdminCandidateResponse(
                 memberId = m.id,
                 name = name,

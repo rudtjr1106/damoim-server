@@ -59,7 +59,8 @@ class MemberService(
             .map { m ->
                 val u = users[m.userId]
                 val isMe = m.userId == userId
-                toResponse(m, u?.nickname ?: "탈퇴한 사용자", visibleEmail(u?.email, isMe, viewerIsAdmin), isMe, imageUrlOf(u))
+                // 44 동아리별 표시 이름 우선(오버라이드 없으면 users.nickname).
+                toResponse(m, m.displayName ?: u?.nickname ?: "탈퇴한 사용자", visibleEmail(u?.email, isMe, viewerIsAdmin), isMe, imageUrlOf(u))
             }
     }
 
@@ -69,7 +70,20 @@ class MemberService(
         val member = membership.currentMembership(userId)
         val user = userRepository.findById(userId).orElseThrow { UnauthorizedException() }
         return toResponse(
-            member, user.nickname, user.email.orEmpty(), isMe = true, imageUrl = imageUrlOf(user),
+            member, member.displayName ?: user.nickname, user.email.orEmpty(), isMe = true, imageUrl = imageUrlOf(user),
+            permissions = membership.permissionsOf(member).map { it.name },
+        )
+    }
+
+    /** 44 동아리별 프로필 수정 — 활성 동아리 스코프(IDOR-safe). 표시 이름만(빈값=오버라이드 해제). */
+    @Transactional
+    fun updateMyClubProfile(userId: Long, req: UpdateClubProfileRequest): MemberResponse {
+        val member = membership.currentMembership(userId)
+        member.displayName = req.displayName?.trim()?.takeIf { it.isNotEmpty() }
+        clubMemberRepository.save(member)
+        val user = userRepository.findById(userId).orElseThrow { UnauthorizedException() }
+        return toResponse(
+            member, member.displayName ?: user.nickname, user.email.orEmpty(), isMe = true, imageUrl = imageUrlOf(user),
             permissions = membership.permissionsOf(member).map { it.name },
         )
     }
@@ -83,7 +97,7 @@ class MemberService(
         val member = loadMemberInClub(memberId, clubId)
         val isMe = member.userId == userId
         val user = userRepository.findById(member.userId).orElse(null)
-        val name = user?.nickname ?: "탈퇴한 사용자"
+        val name = member.displayName ?: user?.nickname ?: "탈퇴한 사용자"   // 44 동아리별 표시 이름 우선
         val cohortLabel = member.cohortId?.let { cohortRepository.findById(it).orElse(null)?.label } ?: ""
 
         val postCount = boardPostRepository

@@ -31,6 +31,12 @@ class ClubMember {
     @Column(name = "cohort_id", nullable = true)
     var cohortId: Long? = null
 
+    @Column(name = "display_name", nullable = true, length = 50)
+    var displayName: String? = null            // 44 동아리별 표시 이름(NULL=users.nickname)
+
+    @Column(name = "display_image_key", nullable = true, columnDefinition = "text")
+    var displayImageKey: String? = null        // 44 동아리별 프로필 사진 키(NULL=users 사진, MVP 미해석)
+
     @Column(name = "joined_at", nullable = false)
     var joinedAt: Instant = Instant.EPOCH
 

@@ -186,7 +186,8 @@ class ClubService(
         return HomeSummaryResponse(
             role = if (isLeader) "LEADER" else "MEMBER",
             clubName = club.name,
-            memberName = user.nickname,
+            memberName = member.displayName ?: user.nickname,   // 44 동아리별 표시 이름
+
             stats = listOf(
                 HomeStatDto(memberCount.toString(), "회원"),
                 HomeStatDto(myCohortShort, "내 기수"),

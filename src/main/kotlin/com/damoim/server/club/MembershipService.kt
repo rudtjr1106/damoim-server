@@ -84,4 +84,20 @@ class MembershipService(
         }
         else -> emptyList()
     }
+
+    /**
+     * 44 동아리별 표시 이름 배치 해석 — userId → (club_members.displayName 우선, 없으면 users.nickname,
+     * 둘 다 없으면 '탈퇴한 사용자'). 이미 ClubMember를 로드한 지점은 `member.displayName ?: nickname`을
+     * 직접 쓰고, users만 배치 조회하던 지점(일정 호스트·자료 업로더 등)이 이 헬퍼로 오버라이드를 반영한다.
+     */
+    @Transactional(readOnly = true)
+    fun displayNamesFor(clubId: Long, userIds: Collection<Long>): Map<Long, String> {
+        if (userIds.isEmpty()) return emptyMap()
+        val ids = userIds.toSet()
+        val overrides = clubMemberRepository.findByClubIdAndUserIdIn(clubId, ids)
+            .mapNotNull { m -> m.displayName?.let { m.userId to it } }
+            .toMap()
+        val nicknames = userRepository.findAllById(ids).associate { it.id to it.nickname }
+        return ids.associateWith { overrides[it] ?: nicknames[it] ?: "탈퇴한 사용자" }
+    }
 }

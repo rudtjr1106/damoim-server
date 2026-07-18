@@ -68,7 +68,9 @@ class ReportService(
         val reports = postReportRepository.findMineInClub(userId, clubId)
         if (reports.isEmpty()) return emptyList()
         val targets = resolveTargets(reports)
-        val users = userRepository.findAllById(targets.values.mapNotNull { it.reportedUserId }.distinct()).associateBy { it.id }
+        val reportedIds = targets.values.mapNotNull { it.reportedUserId }.distinct()
+        val users = userRepository.findAllById(reportedIds).associateBy { it.id }
+        val names = membership.displayNamesFor(clubId, reportedIds)   // 44 동아리별 표시 이름
         return reports.map { r ->
             val t = targets.getValue(r.id)
             val reportedUser = t.reportedUserId?.let { users[it] }
@@ -77,7 +79,7 @@ class ReportService(
                 targetType = t.type,
                 targetPreview = t.preview,
                 reason = r.reason,
-                reportedUserName = reportedUser?.nickname ?: "탈퇴한 사용자",
+                reportedUserName = t.reportedUserId?.let { names[it] } ?: "탈퇴한 사용자",
                 reportedUserImageUrl = reportedUser?.let { imageUrl(it) },
                 createdLabel = r.createdAt?.let { TimeLabels.date(it) } ?: "",
             )
@@ -93,7 +95,7 @@ class ReportService(
         if (reports.isEmpty()) return emptyList()
         val targets = resolveTargets(reports)
         val userIds = (targets.values.mapNotNull { it.reportedUserId } + reports.map { it.reporterId }).distinct()
-        val users = userRepository.findAllById(userIds).associateBy { it.id }
+        val names = membership.displayNamesFor(member.clubId, userIds)   // 44 동아리별 표시 이름
         return reports.map { r ->
             val t = targets.getValue(r.id)
             ClubReportResponse(
@@ -101,8 +103,8 @@ class ReportService(
                 targetType = t.type,
                 targetPreview = t.preview,
                 reason = r.reason,
-                reporterName = users[r.reporterId]?.nickname ?: "탈퇴한 사용자",
-                reportedUserName = t.reportedUserId?.let { users[it]?.nickname } ?: "탈퇴한 사용자",
+                reporterName = names[r.reporterId] ?: "탈퇴한 사용자",
+                reportedUserName = t.reportedUserId?.let { names[it] } ?: "탈퇴한 사용자",
                 createdLabel = r.createdAt?.let { TimeLabels.date(it) } ?: "",
             )
         }
