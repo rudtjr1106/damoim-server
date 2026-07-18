@@ -337,6 +337,8 @@ class BoardService(
         val authorInfo = post.authorId?.let { authors[it] } ?: DELETED_AUTHOR
         val comments = commentRepository.findByPost(post.id)
         val commentAuthors = userRepository.findAllById(comments.mapNotNull { it.authorId }).associateBy { it.id }
+        // 44 댓글 작성자도 동아리별 표시 이름 우선(사진은 users에서).
+        val commentNames = membership.displayNamesFor(clubId, comments.mapNotNull { it.authorId })
         return PostDetailResponse(
             id = post.id,
             category = post.category.name,
@@ -359,7 +361,7 @@ class BoardService(
             attachments = postAttachmentRepository.findByPostIdOrderByPosition(post.id).map { toAttachment(it) },
             poll = pollRepository.findByPostId(post.id)?.let { aggregates.pollResponse(it, userId) },
             recruit = recruitRepository.findByPostId(post.id)?.let { aggregates.recruitResponse(it, userId, includeApplicants = true) },
-            comments = comments.map { toComment(it, post.authorId, commentAuthors) },
+            comments = comments.map { toComment(it, post.authorId, commentAuthors, commentNames) },
         )
     }
 
@@ -409,9 +411,9 @@ class BoardService(
         return VerifiedMedia(k, size)
     }
 
-    private fun toComment(c: Comment, postAuthorId: Long?, users: Map<Long, com.damoim.server.domain.entity.User>): CommentResponse {
+    private fun toComment(c: Comment, postAuthorId: Long?, users: Map<Long, com.damoim.server.domain.entity.User>, names: Map<Long, String>): CommentResponse {
         val u = c.authorId?.let { users[it] }
-        val name = u?.nickname ?: "탈퇴한 사용자"
+        val name = c.authorId?.let { names[it] } ?: u?.nickname ?: "탈퇴한 사용자"   // 44 동아리별 표시 이름 우선
         return CommentResponse(
             id = c.id,
             authorName = name,
@@ -510,8 +512,8 @@ class BoardService(
             .associate { it.id to it.short }
         return ids.associateWith { id ->
             val u = users[id]
-            val name = u?.nickname ?: "탈퇴한 사용자"
             val m = members[id]
+            val name = m?.displayName ?: u?.nickname ?: "탈퇴한 사용자"   // 44 동아리별 표시 이름 우선
             AuthorInfo(name, initials(name), m?.cohortId?.let { cohorts[it] }, m?.memberRole == MemberRole.LEADER, authorImageUrl(u))
         }
     }

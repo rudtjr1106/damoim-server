@@ -5,6 +5,7 @@ import jakarta.validation.Valid
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -28,6 +29,14 @@ class MemberController(private val memberService: MemberService) {
     @GetMapping("/me")
     fun myMember(@AuthenticationPrincipal principal: UserPrincipal): MemberResponse =
         memberService.myMember(principal.userId)
+
+    /** 44 동아리별 프로필 수정 — 표시 이름 오버라이드(활성 동아리, IDOR-safe). */
+    @PatchMapping("/me")
+    fun updateMyClubProfile(
+        @AuthenticationPrincipal principal: UserPrincipal,
+        @Valid @RequestBody req: UpdateClubProfileRequest,
+    ): MemberResponse =
+        memberService.updateMyClubProfile(principal.userId, req)
 
     /** 회원 상세(18). */
     @GetMapping("/{id}")

@@ -169,10 +169,10 @@ class BoardInteractionService(
             },
         )
         val u = userRepository.findById(userId).orElse(null)
-        val name = u?.nickname ?: "나"
+        val name = member.displayName ?: u?.nickname ?: "나"   // 44 동아리별 표시 이름 우선
         val imageUrl = u?.profileImageKey?.let { storageService.presignView(it) } ?: u?.profileImageUrl
-        // 알림 문구엔 응답용 "나" 폴백이 어색하므로 별도 표기
-        publishCommentNotifications(member.clubId, userId, post, parent, u?.nickname ?: "회원", saved.content)
+        // 알림 문구엔 응답용 "나" 폴백이 어색하므로 별도 표기(신규 알림만 이 이름으로 baked).
+        publishCommentNotifications(member.clubId, userId, post, parent, member.displayName ?: u?.nickname ?: "회원", saved.content)
         return CommentResponse(
             id = saved.id,
             authorName = name,

@@ -193,7 +193,7 @@ class ResourceService(
     private fun mapList(userId: Long, clubId: Long, resources: List<Resource>): List<ResourceResponse> {
         if (resources.isEmpty()) return emptyList()
         val uploaderIds = resources.mapNotNull { it.uploaderId }.distinct()
-        val names = userRepository.findAllById(uploaderIds).associate { it.id to it.nickname }
+        val names = membership.displayNamesFor(clubId, uploaderIds)   // 44 동아리별 표시 이름
         val leaders = clubMemberRepository.findByClubIdAndUserIdIn(clubId, uploaderIds)
             .filter { it.memberRole == MemberRole.LEADER }.map { it.userId }.toSet()
         val cohortMap = resourceCohortRepository.byResources(resources.map { it.id })

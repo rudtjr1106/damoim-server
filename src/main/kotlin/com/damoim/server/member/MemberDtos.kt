@@ -1,6 +1,7 @@
 package com.damoim.server.member
 
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Size
 
 /**
  * 명부 회원(16/17/18/20). 파생 필드는 서버가 계산해 내려준다:
@@ -29,6 +30,12 @@ data class MemberDetailResponse(
     val postCount: Int,             // 작성 글 수(삭제 제외)
     val eventCount: Int,            // 이벤트 참여 수(APPLIED)
     val lastActiveLabel: String,    // "1시간 전" / "활동 없음"
+)
+
+/** 44 동아리별 프로필 수정 — 표시 이름 오버라이드(빈값/공백=해제해 users.nickname 복귀). */
+data class UpdateClubProfileRequest(
+    @field:Size(max = 50, message = "이름은 50자 이하여야 합니다.")
+    val displayName: String? = null,
 )
 
 /** 42 기수 변경. */
