@@ -346,6 +346,28 @@ class ClubService(
     }
 
     /**
+     * 52 동아리 삭제 — 동아리장이 마지막 1인(회원수==1)일 때만. 동아리 탈퇴(leaveClub)와 구분:
+     * 이건 좀비 동아리를 남기지 않고 통째로 삭제한다. 회원이 남아 있으면 거부(CLUB_NOT_EMPTY).
+     */
+    @Transactional
+    fun deleteClub(userId: Long) {
+        val clubId = membership.requireLeader(userId).clubId
+        if (clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE) != 1L) {
+            throw ConflictException(
+                "회원이 남아 있어 삭제할 수 없어요. 먼저 모든 회원을 내보내주세요.",
+                "CLUB_NOT_EMPTY",
+            )
+        }
+        deleteClubCascade(clubId)
+        // 삭제 후 활성 동아리 재지정 — 다른 소속 있으면 그쪽, 없으면 null.
+        val user = userRepository.findById(userId).orElseThrow { UnauthorizedException() }
+        user.activeClubId = clubMemberRepository
+            .findByUserIdAndStatus(userId, MemberStatus.ACTIVE)
+            .firstOrNull { it.clubId != clubId }?.clubId
+        userRepository.save(user)
+    }
+
+    /**
      * 동아리 삭제(51 탈퇴 시 단독 리더 동아리 · 52 동아리 삭제). S3 미디어를 동아리 프리픽스로
      * best-effort 스윕한 뒤 DB 캐스케이드(clubs FK ON DELETE CASCADE)로 하위 전부 삭제한다.
      * 인가는 호출부 책임(여긴 순수 삭제만). profiles/는 유저별이라 절대 건드리지 않는다.
