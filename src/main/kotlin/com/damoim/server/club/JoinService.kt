@@ -112,7 +112,9 @@ class JoinService(
                         this.userId = app.userId
                         memberRole = MemberRole.MEMBER
                         status = MemberStatus.ACTIVE
+                        // 희망 기수가 없으면 동아리의 첫(가장 오래된) 기수로 배정 — 미배정(파란 원)을 방지.
                         cohortId = app.desiredCohortId
+                            ?: cohortRepository.findByClubIdOrderByCreatedAtAsc(clubId).firstOrNull()?.id
                         joinedAt = now
                     },
                 )
