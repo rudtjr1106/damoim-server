@@ -10,10 +10,11 @@ data class SubscriptionStateResponse(
     val tier: String,                 // FREE / STANDARD / PRO
     val planName: String,             // "무료 플랜" / "스탠다드 플랜"
     val monthlyPriceLabel: String,    // "₩9,900" / "₩0"
-    val nextBillingLabel: String,     // "2026.08.07" / "-"
+    val nextBillingLabel: String,     // "2026.08.07" / "-" (해지 예약이면 '이용 만료일')
     val memberUsed: Int,
     val memberLimit: Int,             // FREE=30, PRO=9999(무제한)
     val payments: List<PaymentRecordResponse>,
+    val canceled: Boolean = false,    // 해지 예약(만료 전) — 갱신일까지 이용 가능
 )
 
 data class PaymentRecordResponse(
