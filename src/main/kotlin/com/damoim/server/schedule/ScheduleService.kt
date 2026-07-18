@@ -18,6 +18,7 @@ import com.damoim.server.domain.enums.NotificationTargetType
 import com.damoim.server.domain.enums.NotificationType
 import com.damoim.server.domain.enums.QuestionType
 import com.damoim.server.domain.enums.ScheduleAccent
+import com.damoim.server.domain.enums.PermissionType
 import com.damoim.server.domain.enums.ScheduleType
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.EventApplicationRepository
@@ -36,7 +37,7 @@ import java.time.LocalDate
 
 /**
  * 일정/이벤트 조회·CRUD·운영 액션(F). 조회는 활성 회원, 관리(등록/수정/삭제/조기마감/공지)는
- * 동아리장(requireLeader) — 클라 isLeader 게이팅과 일치. 대상은 활성 동아리 스코프로 재검증(IDOR 차단).
+ * SCHEDULE_MANAGE 권한(동아리장 전권 또는 부여된 STAFF). 대상은 활성 동아리 스코프로 재검증(IDOR 차단).
  */
 @Service
 class ScheduleService(
@@ -143,7 +144,7 @@ class ScheduleService(
     /** 23 등록 — LEADER. 이벤트면 events+form_questions 함께 생성. 생성 id 반환. */
     @Transactional
     fun create(userId: Long, req: SaveScheduleRequest): Long {
-        val member = membership.requireLeader(userId)
+        val member = membership.requirePermission(userId, PermissionType.SCHEDULE_MANAGE)
         val schedule = scheduleRepository.save(
             Schedule().apply {
                 clubId = member.clubId
@@ -171,7 +172,7 @@ class ScheduleService(
     /** 23 수정 — LEADER. 신청/정원/상태는 보존, 폼은 전량 교체. 타입 전환도 지원. */
     @Transactional
     fun update(userId: Long, scheduleId: Long, req: SaveScheduleRequest): Long {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.SCHEDULE_MANAGE).clubId
         val schedule = loadScheduleInClub(scheduleId, clubId)
         applyCommon(schedule, req)
         scheduleRepository.save(schedule)
@@ -212,7 +213,7 @@ class ScheduleService(
     /** 63 삭제 — LEADER. 이벤트/폼/신청/내일정은 스키마 CASCADE로 함께 삭제. */
     @Transactional
     fun delete(userId: Long, scheduleId: Long) {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.SCHEDULE_MANAGE).clubId
         val schedule = loadScheduleInClub(scheduleId, clubId)
         scheduleRepository.delete(schedule)
     }
@@ -222,7 +223,7 @@ class ScheduleService(
     /** 47/62 신청 조기 마감 — LEADER. 이벤트만. 저장된 CLOSED는 sticky(취소로 재개방되지 않음). */
     @Transactional
     fun closeEarly(userId: Long, scheduleId: Long) {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.SCHEDULE_MANAGE).clubId
         val schedule = loadScheduleInClub(scheduleId, clubId)
         val event = eventRepository.findByScheduleId(schedule.id)
             ?: throw BadRequestException("이벤트가 아닙니다.", "NOT_AN_EVENT")
@@ -233,7 +234,7 @@ class ScheduleService(
     /** G5 공지로 알리기 — LEADER. 게시판 필독 NOTICE 글로 자동 등록. */
     @Transactional
     fun announce(userId: Long, scheduleId: Long) {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.SCHEDULE_MANAGE).clubId
         val schedule = loadScheduleInClub(scheduleId, clubId)
         val post = boardPostRepository.save(
             BoardPost().apply {

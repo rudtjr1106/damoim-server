@@ -9,6 +9,7 @@ import com.damoim.server.domain.entity.ClubMember
 import com.damoim.server.domain.entity.User
 import com.damoim.server.domain.enums.ApplicantStatus
 import com.damoim.server.domain.enums.MemberRole
+import com.damoim.server.domain.enums.PermissionType
 import com.damoim.server.domain.enums.MemberStatus
 import com.damoim.server.domain.repository.AdminProfileRepository
 import com.damoim.server.domain.repository.BoardPostRepository
@@ -67,7 +68,10 @@ class MemberService(
     fun myMember(userId: Long): MemberResponse {
         val member = membership.currentMembership(userId)
         val user = userRepository.findById(userId).orElseThrow { UnauthorizedException() }
-        return toResponse(member, user.nickname, user.email.orEmpty(), isMe = true, imageUrl = imageUrlOf(user))
+        return toResponse(
+            member, user.nickname, user.email.orEmpty(), isMe = true, imageUrl = imageUrlOf(user),
+            permissions = membership.permissionsOf(member).map { it.name },
+        )
     }
 
     /** 18 회원 상세 — 활동 요약은 실집계(게시글·이벤트·최근 활동). */
@@ -103,7 +107,7 @@ class MemberService(
     /** 42 기수 변경(LEADER). 대상 기수도 같은 동아리 소속인지 검증. 카운트는 COUNT 파생이라 별도 조정 없음. */
     @Transactional
     fun changeCohort(userId: Long, memberId: Long, cohortId: Long) {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.MEMBER_MANAGE).clubId
         val member = loadMemberInClub(memberId, clubId)
         val cohort = cohortRepository.findById(cohortId)
             .orElseThrow { NotFoundException("기수를 찾을 수 없습니다.") }
@@ -137,7 +141,7 @@ class MemberService(
     /** 43 내보내기(LEADER). 본인·동아리장 제외. 명부 행 삭제 + 내보낸 회원 활성 동아리 재지정. */
     @Transactional
     fun remove(userId: Long, memberId: Long) {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.MEMBER_MANAGE).clubId
         val member = loadMemberInClub(memberId, clubId)
         if (member.memberRole == MemberRole.LEADER || member.userId == userId) {
             throw BadRequestException("동아리장은 내보낼 수 없습니다.", "CANNOT_REMOVE_LEADER")
@@ -185,7 +189,7 @@ class MemberService(
         return member
     }
 
-    private fun toResponse(m: ClubMember, name: String, email: String, isMe: Boolean, imageUrl: String? = null) = MemberResponse(
+    private fun toResponse(m: ClubMember, name: String, email: String, isMe: Boolean, imageUrl: String? = null, permissions: List<String> = emptyList()) = MemberResponse(
         id = m.id,
         name = name,
         initials = initialsOf(name),
@@ -196,6 +200,7 @@ class MemberService(
         joinedLabel = TimeLabels.date(m.joinedAt),
         isMe = isMe,
         profileImageUrl = imageUrl,
+        permissions = permissions,
     )
 
     /**

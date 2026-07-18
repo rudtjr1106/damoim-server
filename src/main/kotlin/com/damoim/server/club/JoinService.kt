@@ -11,6 +11,7 @@ import com.damoim.server.domain.enums.JoinStatus
 import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.MemberStatus
 import com.damoim.server.domain.enums.NotificationType
+import com.damoim.server.domain.enums.PermissionType
 import com.damoim.server.domain.repository.ClubMemberRepository
 import com.damoim.server.domain.repository.ClubRepository
 import com.damoim.server.domain.repository.CohortRepository
@@ -60,7 +61,7 @@ class JoinService(
     /** 가입 신청 관리(09) — LEADER만. */
     @Transactional(readOnly = true)
     fun applicants(userId: Long): ApplicantsBoardResponse {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.JOIN_APPROVE).clubId
         val pending = joinApplicationRepository.findByClubIdAndStatusOrderByCreatedAtDesc(clubId, JoinStatus.PENDING)
         val processed = joinApplicationRepository.findByClubIdAndStatusInOrderByCreatedAtDesc(
             clubId,
@@ -88,7 +89,7 @@ class JoinService(
     /** 승인/거절(09) — LEADER만. IDOR 방지: 신청이 리더의 동아리 소속인지 확인. */
     @Transactional
     fun decide(userId: Long, applicationId: Long, req: DecideRequest) {
-        val clubId = membership.requireLeader(userId).clubId
+        val clubId = membership.requirePermission(userId, PermissionType.JOIN_APPROVE).clubId
         val app = joinApplicationRepository.findById(applicationId)
             .orElseThrow { NotFoundException("신청을 찾을 수 없습니다.") }
         if (app.clubId != clubId) {
