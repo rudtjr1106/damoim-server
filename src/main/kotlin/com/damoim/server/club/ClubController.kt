@@ -6,6 +6,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -82,6 +83,11 @@ class ClubController(private val clubService: ClubService) {
     @PostMapping("/me/leave")
     fun leaveClub(@AuthenticationPrincipal principal: UserPrincipal) =
         clubService.leaveClub(principal.userId)
+
+    /** 52 동아리 삭제 — 동아리장이 마지막 1인일 때만. 활성 동아리 기준(IDOR-safe). */
+    @DeleteMapping("/me")
+    fun deleteClub(@AuthenticationPrincipal principal: UserPrincipal) =
+        clubService.deleteClub(principal.userId)
 
     /** 가입 코드 재발급(08·59) — LEADER. */
     @PostMapping("/me/join-code/regenerate")
