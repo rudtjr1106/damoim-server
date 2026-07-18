@@ -25,6 +25,9 @@ class Subscription {
     @Column(name = "member_limit", nullable = false)
     var memberLimit: Int = 0
 
+    @Column(name = "storage_quota_bytes", nullable = false)
+    var storageQuotaBytes: Long = 1_073_741_824   // 계약 시점 플랜 저장 용량 스냅샷(41)
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     var status: SubscriptionStatus = SubscriptionStatus.ACTIVE

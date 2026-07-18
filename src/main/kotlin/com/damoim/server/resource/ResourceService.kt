@@ -19,7 +19,6 @@ import com.damoim.server.domain.repository.ResourceCohortRepository
 import com.damoim.server.domain.repository.ResourceRepository
 import com.damoim.server.domain.repository.UserRepository
 import com.damoim.server.storage.StorageKeys
-import com.damoim.server.storage.StorageProperties
 import com.damoim.server.storage.StorageService
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
@@ -36,7 +35,7 @@ class ResourceService(
     private val clubRepository: ClubRepository,
     private val userRepository: UserRepository,
     private val storageService: StorageService,
-    private val storageProperties: StorageProperties,
+    private val subscriptionService: com.damoim.server.settings.SubscriptionService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -66,7 +65,7 @@ class ResourceService(
     fun storage(userId: Long): StorageUsageResponse {
         val clubId = membership.currentMembership(userId).clubId
         val used = resourceRepository.sumSizeBytes(clubId)
-        val quota = storageProperties.quotaBytes
+        val quota = subscriptionService.effectiveLimits(clubId).storageQuotaBytes
         return StorageUsageResponse(
             usedBytes = used,
             usedLabel = SizeLabels.of(used),
@@ -171,7 +170,9 @@ class ResourceService(
     }
 
     private fun requireQuota(clubId: Long, addBytes: Long) {
-        if (resourceRepository.sumSizeBytes(clubId) + addBytes > storageProperties.quotaBytes) {
+        // 41 플랜별 저장 용량 집행 — 구독 티어(해지 만료 반영)에 따른 실효 쿼터.
+        val quota = subscriptionService.effectiveLimits(clubId).storageQuotaBytes
+        if (resourceRepository.sumSizeBytes(clubId) + addBytes > quota) {
             throw ConflictException("저장공간이 부족합니다.", "STORAGE_FULL")
         }
     }

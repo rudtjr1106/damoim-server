@@ -27,6 +27,9 @@ class SubscriptionPlan {
     @Column(name = "member_limit", nullable = false)
     var memberLimit: Int = 0
 
+    @Column(name = "storage_quota_bytes", nullable = false)
+    var storageQuotaBytes: Long = 1_073_741_824   // 파일 저장 용량(41). 기본 1GB.
+
     @Column(name = "recommended", nullable = false)
     var recommended: Boolean = false
 
