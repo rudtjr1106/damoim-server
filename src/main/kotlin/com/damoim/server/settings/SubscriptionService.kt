@@ -21,6 +21,9 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Duration
 import java.time.Instant
 
+/** 41 동아리 실효 한도 — 회원 정원 + 파일 저장 용량(bytes). */
+data class ClubLimits(val memberLimit: Int, val storageQuotaBytes: Long)
+
 /**
  * 구독(27/29/49/50). 조회·결제·해지는 동아리장 전용(빌링은 리더 관리 영역). 플랜 카탈로그는 인증만.
  * ⚠️ 인앱결제 영수증 서버 검증은 미구현(하드닝) — 현재는 클라의 결제 성공 신고를 신뢰.
@@ -82,6 +85,7 @@ class SubscriptionService(
         val sub = (current ?: Subscription().apply { this.clubId = clubId }).apply {
             this.tier = tier
             memberLimit = plan.memberLimit
+            storageQuotaBytes = plan.storageQuotaBytes
             status = SubscriptionStatus.ACTIVE
             startedAt = now
             nextBillingAt = now.plus(Duration.ofDays(BILLING_CYCLE_DAYS))
@@ -124,6 +128,21 @@ class SubscriptionService(
     private fun isExpired(sub: Subscription?): Boolean =
         sub != null && sub.status == SubscriptionStatus.CANCELED &&
             (sub.nextBillingAt == null || !sub.nextBillingAt!!.isAfter(Instant.now()))
+
+    /**
+     * 41 집행용 실효 한도 — 회원 정원·저장 용량. 해지 예약 만료 시 무료 한도로 떨어진다.
+     * JoinService(회원 승인)·ResourceService(업로드 쿼터)가 이 판정을 공유해 만료 정합성을 맞춘다.
+     */
+    @Transactional(readOnly = true)
+    fun effectiveLimits(clubId: Long): ClubLimits {
+        val sub = subscriptionRepository.findByClubId(clubId)
+        val free = subscriptionPlanRepository.findByTier(PlanTier.FREE)
+        return if (sub == null || sub.tier == PlanTier.FREE || isExpired(sub)) {
+            ClubLimits(free?.memberLimit ?: 30, free?.storageQuotaBytes ?: 1_073_741_824)
+        } else {
+            ClubLimits(sub.memberLimit, sub.storageQuotaBytes)
+        }
+    }
 
     private fun toState(sub: Subscription?, clubId: Long, isLeader: Boolean): SubscriptionStateResponse {
         val memberUsed = clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE).toInt()

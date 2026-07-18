@@ -33,6 +33,7 @@ class JoinService(
     private val userRepository: UserRepository,
     private val storageService: StorageService,
     private val membership: MembershipService,
+    private val subscriptionService: com.damoim.server.settings.SubscriptionService,
 ) {
     /** 가입 코드 제출(03) — 활성 코드로 동아리 조회 → 대기 신청 생성(멱등). */
     @Transactional
@@ -107,6 +108,15 @@ class JoinService(
             app.status = JoinStatus.APPROVED
             joinApplicationRepository.save(app)
             if (!clubMemberRepository.existsByClubIdAndUserId(clubId, app.userId)) {
+                // 41 회원 정원 집행 — 플랜(해지 만료 반영) 한도 초과면 승인 차단.
+                val limit = subscriptionService.effectiveLimits(clubId).memberLimit
+                val used = clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE)
+                if (used >= limit) {
+                    throw ConflictException(
+                        "회원 정원(${limit}명)이 가득 찼어요. 상위 플랜으로 업그레이드해 주세요.",
+                        "MEMBER_LIMIT_REACHED",
+                    )
+                }
                 clubMemberRepository.save(
                     ClubMember().apply {
                         this.clubId = clubId
