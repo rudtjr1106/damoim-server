@@ -19,4 +19,6 @@ interface PollRepository : JpaRepository<Poll, Long> {
 
 interface PollOptionRepository : JpaRepository<PollOption, Long> {
     fun findByPollIdOrderByPosition(pollId: Long): List<PollOption>
+    /** 투표 재조정(수정) 시 해당 투표의 모든 항목 제거. */
+    fun deleteByPollId(pollId: Long)
 }

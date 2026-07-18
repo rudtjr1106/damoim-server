@@ -26,6 +26,7 @@ import com.damoim.server.domain.repository.CohortRepository
 import com.damoim.server.domain.repository.CommentRepository
 import com.damoim.server.domain.repository.PollOptionRepository
 import com.damoim.server.domain.repository.PollRepository
+import com.damoim.server.domain.repository.PollVoteRepository
 import com.damoim.server.domain.repository.PostAttachmentRepository
 import com.damoim.server.domain.repository.PostLikeRepository
 import com.damoim.server.domain.repository.PostReadRepository
@@ -48,6 +49,7 @@ class BoardService(
     private val postAttachmentRepository: PostAttachmentRepository,
     private val pollRepository: PollRepository,
     private val pollOptionRepository: PollOptionRepository,
+    private val pollVoteRepository: PollVoteRepository,
     private val recruitRepository: RecruitRepository,
     private val postLikeRepository: PostLikeRepository,
     private val postReadRepository: PostReadRepository,
@@ -210,24 +212,66 @@ class BoardService(
         }
     }
 
+    /** 투표 항목 검증(공백 제거·개수 2~10·길이) 후 정제된 라벨 리스트 반환. */
+    private fun validatedPollOptions(p: PollInput): List<String> {
+        val opts = p.options.map { it.trim() }.filter { it.isNotEmpty() }
+        if (opts.size < 2) throw BadRequestException("투표 항목은 2개 이상이어야 합니다.")
+        if (opts.any { it.length > 200 }) throw BadRequestException("투표 항목은 200자 이하여야 합니다.")
+        return opts
+    }
+
+    /** 새 투표 저장(생성·재조정 공용). */
+    private fun createPoll(postId: Long, p: PollInput) {
+        val opts = validatedPollOptions(p)
+        val poll = pollRepository.save(
+            Poll().apply {
+                this.postId = postId
+                anonymous = p.anonymous
+                multiSelect = p.multiSelect
+                deadline = p.deadline
+            },
+        )
+        opts.forEachIndexed { i, label ->
+            pollOptionRepository.save(PollOption().apply { pollId = poll.id; this.label = label; position = i })
+        }
+    }
+
+    /** 투표(항목·표 포함) 제거. */
+    private fun deletePoll(poll: Poll) {
+        pollVoteRepository.deleteByPollId(poll.id)
+        pollOptionRepository.deleteByPollId(poll.id)
+        pollRepository.delete(poll)
+    }
+
+    /**
+     * 수정 시 투표 재조정. null이면 제거, 항목이 기존과 동일하면 설정만 갱신(표 보존),
+     * 항목이 바뀌었으면(추가/삭제/순서) 기존 투표를 지우고 재생성한다.
+     */
+    private fun reconcilePoll(postId: Long, req: PollInput?) {
+        val existing = pollRepository.findByPostId(postId)
+        if (req == null) {
+            if (existing != null) deletePoll(existing)
+            return
+        }
+        val newOpts = validatedPollOptions(req)
+        if (existing != null) {
+            val existingLabels = pollOptionRepository.findByPollIdOrderByPosition(existing.id).map { it.label }
+            if (existingLabels == newOpts) {
+                existing.anonymous = req.anonymous
+                existing.multiSelect = req.multiSelect
+                existing.deadline = req.deadline
+                pollRepository.save(existing)
+                return
+            }
+            deletePoll(existing)
+            pollRepository.flush()   // 재생성 전 삭제 확정(postId 유니크 제약 충돌 방지)
+        }
+        createPoll(postId, req)
+    }
+
     private fun persistRichContent(clubId: Long, postId: Long, req: CreatePostRequest) {
         persistAttachments(clubId, postId, req.attachments)
-        req.poll?.let { p ->
-            val opts = p.options.map { it.trim() }.filter { it.isNotEmpty() }
-            if (opts.size < 2) throw BadRequestException("투표 항목은 2개 이상이어야 합니다.")
-            if (opts.any { it.length > 200 }) throw BadRequestException("투표 항목은 200자 이하여야 합니다.")
-            val poll = pollRepository.save(
-                Poll().apply {
-                    this.postId = postId
-                    anonymous = p.anonymous
-                    multiSelect = p.multiSelect
-                    deadline = p.deadline
-                },
-            )
-            opts.forEachIndexed { i, label ->
-                pollOptionRepository.save(PollOption().apply { pollId = poll.id; this.label = label; position = i })
-            }
-        }
+        req.poll?.let { createPoll(postId, it) }
         req.recruit?.let { r ->
             recruitRepository.save(
                 Recruit().apply {
@@ -258,9 +302,11 @@ class BoardService(
         post.content = req.content
         boardPostRepository.save(post)
         // 첨부 전체 교체(수정 시 추가/삭제/순서 반영). 기존 이미지/문서는 클라가 storageKey로 재전송,
-        // 새로 추가한 것만 실업로드된 키가 온다. 투표/모집은 별도(불변, 미변경).
+        // 새로 추가한 것만 실업로드된 키가 온다. 투표는 아래에서 재조정, 모집은 미변경.
         postAttachmentRepository.deleteByPostId(post.id)
         persistAttachments(member.clubId, post.id, req.attachments)
+        // 투표 항목 추가/삭제/설정 변경 반영(항목이 같으면 표 보존).
+        reconcilePoll(post.id, req.poll)
         return mapDetail(userId, member.clubId, post)
     }
 
