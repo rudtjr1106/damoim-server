@@ -3,6 +3,7 @@ package com.damoim.server.user
 import com.damoim.server.security.UserPrincipal
 import jakarta.validation.Valid
 import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
@@ -34,4 +35,9 @@ class UserController(private val userService: UserService) {
         @Valid @RequestBody req: ProfileImageUploadRequest,
     ): ProfileImageUploadResponse =
         userService.createProfileImageUploadUrl(principal.userId, req)
+
+    /** 51 회원 탈퇴 — 본인만. 로그아웃/동아리 탈퇴와 별개. 단독 리더 동아리는 함께 삭제된다. */
+    @DeleteMapping("/withdraw")
+    fun withdraw(@AuthenticationPrincipal principal: UserPrincipal) =
+        userService.withdraw(principal.userId)
 }

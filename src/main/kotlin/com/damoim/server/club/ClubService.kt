@@ -345,6 +345,20 @@ class ClubService(
         userRepository.save(user)
     }
 
+    /**
+     * 동아리 삭제(51 탈퇴 시 단독 리더 동아리 · 52 동아리 삭제). S3 미디어를 동아리 프리픽스로
+     * best-effort 스윕한 뒤 DB 캐스케이드(clubs FK ON DELETE CASCADE)로 하위 전부 삭제한다.
+     * 인가는 호출부 책임(여긴 순수 삭제만). profiles/는 유저별이라 절대 건드리지 않는다.
+     * 로컬 스토리지 스텁은 listObjects가 빈 목록이라 스윕이 no-op이다.
+     */
+    @Transactional
+    fun deleteClubCascade(clubId: Long) {
+        listOf("posts/$clubId/", "resources/$clubId/", "clubs/$clubId/").forEach { prefix ->
+            runCatching { storageService.listObjects(prefix).forEach { obj -> runCatching { storageService.delete(obj.key) } } }
+        }
+        clubRepository.deleteById(clubId)
+    }
+
     private fun activeMemberCount(clubId: Long): Int =
         clubMemberRepository.countByClubIdAndStatus(clubId, MemberStatus.ACTIVE).toInt()
 
