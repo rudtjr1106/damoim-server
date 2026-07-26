@@ -19,7 +19,10 @@ import java.nio.file.Paths
  */
 @Service
 @ConditionalOnProperty(name = ["app.storage.provider"], havingValue = "local", matchIfMissing = true)
-class LocalStorageService(private val props: StorageProperties) : StorageService {
+class LocalStorageService(
+    private val props: StorageProperties,
+    private val signer: LocalStorageSigner,
+) : StorageService {
 
     // 저장 루트를 설정값(app.storage.local.dir)으로 확정한다. 부팅 시 1회 — 컨트롤러는 요청 시점에만
     // LocalStorage를 만지므로 순서 안전. 디렉터리를 미리 만들어 권한 문제를 부팅에서 드러낸다(fail-fast).
@@ -32,14 +35,17 @@ class LocalStorageService(private val props: StorageProperties) : StorageService
     override fun objectSizeOrNull(key: String): Long? =
         LocalStorage.resolve(key).takeIf { Files.exists(it) }?.let { Files.size(it) }
 
+    // S3 presigned처럼 만료·HMAC 서명을 붙인다(무인증 capability URL 방지).
+    private fun sig(key: String) = signer.signedParams(key, props.presignExpirySeconds)
+
     override fun presignUpload(key: String, contentType: String?): PresignedUpload =
-        PresignedUpload("${baseUrl()}/_localstorage/$key?op=put", key, props.presignExpirySeconds)
+        PresignedUpload("${baseUrl()}/_localstorage/$key?op=put&${sig(key)}", key, props.presignExpirySeconds)
 
     override fun presignDownload(key: String, downloadFileName: String): String =
-        "${baseUrl()}/_localstorage/$key?op=get&name=$downloadFileName"
+        "${baseUrl()}/_localstorage/$key?op=get&name=$downloadFileName&${sig(key)}"
 
     override fun presignView(key: String): String =
-        "${baseUrl()}/_localstorage/$key?op=view"
+        "${baseUrl()}/_localstorage/$key?op=view&${sig(key)}"
 
     override fun delete(key: String) {
         runCatching { Files.deleteIfExists(LocalStorage.resolve(key)) }

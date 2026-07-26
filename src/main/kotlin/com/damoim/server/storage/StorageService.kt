@@ -54,7 +54,7 @@ data class StorageProperties(
      * 컨테이너 배포에선 반드시 영구 볼륨 경로를 STORAGE_LOCAL_DIR로 주입할 것 —
      * 안 하면 컨테이너 재생성마다 업로드된 파일이 전부 사라진다(DB의 key만 남아 GET 404).
      */
-    data class LocalProps(val baseUrl: String = "", val dir: String = "")
+    data class LocalProps(val baseUrl: String = "", val dir: String = "", val signSecret: String = "")
 
     /** orphan 스윕 배치 설정. [graceHours]는 업로드 후 등록 대기 중인 오브젝트를 오삭제하지 않기 위한 유예. */
     data class OrphanSweep(

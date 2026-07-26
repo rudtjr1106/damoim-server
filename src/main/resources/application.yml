@@ -65,6 +65,9 @@ app:
       # provider=local의 바이트 저장 루트. 비우면 tmp(컨테이너 재생성 시 소실 — 로컬 개발 전용).
       # 컨테이너 배포에선 반드시 영구 볼륨 경로 주입(예: /var/lib/damoim/storage).
       dir: ${STORAGE_LOCAL_DIR:}
+      # presigned URL 서명 시크릿(HMAC). 비우면 부팅마다 랜덤(재시작 시 기존 URL 무효 — 개발 무해).
+      # 자가호스팅 운영에선 반드시 고정 시크릿 주입(재시작에도 URL 유효 유지 + 위조 방지).
+      sign-secret: ${STORAGE_LOCAL_SIGN_SECRET:}
     s3:
       bucket: ${S3_BUCKET:}
       region: ${S3_REGION:ap-northeast-2}

@@ -1,6 +1,7 @@
 package com.damoim.server.storage
 
 import com.damoim.server.common.BadRequestException
+import com.damoim.server.common.ForbiddenException
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -22,7 +23,7 @@ import java.nio.file.Files
  */
 @RestController
 @ConditionalOnProperty(name = ["app.storage.provider"], havingValue = "local", matchIfMissing = true)
-class LocalStorageController {
+class LocalStorageController(private val signer: LocalStorageSigner) {
 
     /** 업로드 — presigned PUT. 바디 바이트를 키 경로에 저장한다. */
     @PutMapping("/_localstorage/**")
@@ -33,7 +34,9 @@ class LocalStorageController {
         if (request.contentType?.startsWith(MediaType.APPLICATION_FORM_URLENCODED_VALUE) == true) {
             throw BadRequestException("업로드 Content-Type이 올바르지 않습니다.", "INVALID_CONTENT_TYPE")
         }
-        val target = LocalStorage.resolve(keyOf(request))
+        val key = keyOf(request)
+        verifySignature(request, key)
+        val target = LocalStorage.resolve(key)
         Files.createDirectories(target.parent)
         request.inputStream.use { input -> Files.newOutputStream(target).use { input.copyTo(it) } }
         response.status = HttpStatus.OK.value()
@@ -42,7 +45,9 @@ class LocalStorageController {
     /** 다운로드/인라인 뷰 — presigned GET. 저장된 바이트를 그대로 서빙(클라가 디코드). */
     @GetMapping("/_localstorage/**")
     fun get(request: HttpServletRequest, response: HttpServletResponse) {
-        val target = LocalStorage.resolve(keyOf(request))
+        val key = keyOf(request)
+        verifySignature(request, key)
+        val target = LocalStorage.resolve(key)
         if (!Files.exists(target)) {
             response.status = HttpStatus.NOT_FOUND.value()
             return
@@ -59,6 +64,18 @@ class LocalStorageController {
      * URLDecoder는 '+'를 공백으로 바꿔(form-urlencoded 규칙) 경로에 부적합하므로 UriUtils.decode를 쓴다.
      * PUT/GET 둘 다 이 함수를 쓰므로 저장·서빙이 항상 동일한 디코딩 키 기준으로 대칭이다.
      */
+    /**
+     * presigned 서명·만료 검증. S3 presigned와 동등하게, 유효 서명·미만료가 아니면 403.
+     * (경로 화이트리스트/탈출 방어는 keyOf·LocalStorage가 별도로 담당.)
+     */
+    private fun verifySignature(request: HttpServletRequest, key: String) {
+        val exp = request.getParameter("exp")?.toLongOrNull()
+        val sig = request.getParameter("sig")
+        if (!signer.isValid(key, exp, sig)) {
+            throw ForbiddenException("서명이 유효하지 않거나 만료된 URL입니다.", "INVALID_SIGNATURE")
+        }
+    }
+
     private fun keyOf(request: HttpServletRequest): String {
         val raw = request.requestURI.substringAfter("/_localstorage/")
         val key = runCatching { UriUtils.decode(raw, StandardCharsets.UTF_8) }
