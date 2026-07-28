@@ -47,6 +47,9 @@ dependencies {
     // ── JOSE (Apple StoreKit 2 JWS 서명 트랜잭션 검증: ES256 + x5c) ──
     implementation("com.nimbusds:nimbus-jose-jwt:9.40")
 
+    // ── FCM 푸시 (Firebase Admin SDK) — app.firebase.enabled=true일 때만 실사용 ──
+    implementation("com.google.firebase:firebase-admin:9.4.3")
+
     // ── 파일 스토리지 (S3, presigned URL) ──
     implementation(platform("software.amazon.awssdk:bom:2.47.5"))
     implementation("software.amazon.awssdk:s3")
