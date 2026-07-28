@@ -21,6 +21,9 @@ local.properties
 src/main/resources/application-secret.yml
 # 로컬 실행 스크립트(시크릿 포함)
 run-local-*.sh
+# Firebase 서비스계정 비밀키(서버 FCM 발송용 — private_key 포함, 절대 커밋 금지)
+firebase-service-account.json
+*firebase-adminsdk*.json
 
 # Logs
 *.log
