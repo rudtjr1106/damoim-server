@@ -22,6 +22,8 @@ src/main/resources/application-secret.yml
 # 로컬 실행 스크립트(시크릿 포함)
 run-local-*.sh
 # Firebase 서비스계정 비밀키(서버 FCM 발송용 — private_key 포함, 절대 커밋 금지)
+# secrets/ 는 prod compose가 컨테이너로 마운트하는 시크릿 디렉터리(로컬·prod 공용 키 위치).
+secrets/
 firebase-service-account.json
 *firebase-adminsdk*.json
 
