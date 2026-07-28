@@ -122,6 +122,36 @@ docker compose -f docker-compose.prod.yml exec app ls -R /var/lib/damoim/storage
 
 ---
 
+## FCM 푸시 알림 켜기 (선택)
+
+미설정이면 서버는 정상 동작하고 **폰으로 나가는 푸시만 안 나간다**(앱 안 알림은 정상).
+실제 푸시를 켜려면 집 PC에서:
+
+1. **서비스계정 키 발급** — Firebase 콘솔 → 프로젝트 설정 → **서비스 계정** 탭 → "새 비공개 키 생성" → JSON 다운로드.
+   (클라의 `google-services.json`/`GoogleService-Info.plist`와는 **다른** 서버 전용 비밀키다.)
+2. **집 PC에 배치** — 그 JSON을 아래 경로에 둔다(이 디렉터리는 `.gitignore`됨, compose가 컨테이너로 마운트):
+   ```bash
+   mkdir -p secrets
+   cp ~/받은키.json secrets/firebase-service-account.json
+   ```
+3. **`.env`에서 활성화** — 한 줄만:
+   ```
+   FIREBASE_ENABLED=true
+   FIREBASE_PROJECT_ID=damoim-3b22c
+   ```
+4. **재배포** — `docker compose -f docker-compose.prod.yml up -d --build`
+
+확인: 앱 로그에 Firebase 초기화 에러가 없고, 공지/댓글/일정 등 알림 발생 시 폰에 푸시가 뜬다.
+```bash
+docker compose -f docker-compose.prod.yml logs -f app | grep -i firebase
+```
+
+> ⚠️ iOS 푸시는 여기에 더해 **APNs 인증키(.p8)**를 Firebase 콘솔(프로젝트 설정 → Cloud Messaging → Apple 앱)에
+> 업로드해야 실제로 전달된다. Android는 서버 키만으로 바로 나간다.
+> 키 파일(`secrets/`)은 git에 안 올라가므로 **집 PC에 직접 복사**해야 한다(`.env`와 동일).
+
+---
+
 ## 자주 겪는 문제
 
 - **`KAKAO_APP_ID 필요` / 부팅 실패**: `.env`의 KAKAO_APP_ID가 비었거나 0. 숫자 앱ID 넣기.

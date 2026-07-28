@@ -48,9 +48,17 @@ services:
       S3_REGION: ${S3_REGION:-ap-northeast-2}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-    # 업로드된 이미지·파일 바이트 보관 — 컨테이너를 재시작·재빌드해도 업로드 파일 보존.
+      # ── FCM 푸시(Firebase Admin). 미설정(false) 시 서버는 정상 기동하고 푸시만 no-op ──
+      FIREBASE_ENABLED: ${FIREBASE_ENABLED:-false}
+      # 컨테이너 안에서의 서비스계정 JSON 경로(아래 secrets 볼륨으로 마운트됨).
+      FIREBASE_CREDENTIALS: ${FIREBASE_CREDENTIALS:-/etc/damoim/secrets/firebase-service-account.json}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
     volumes:
+      # 업로드된 이미지·파일 바이트 보관 — 컨테이너를 재시작·재빌드해도 업로드 파일 보존.
       - damoim-storage:/var/lib/damoim/storage
+      # FCM 서비스계정 키(호스트 ./secrets → 컨테이너, 읽기전용). 호스트에 secrets/가 없으면
+      # 빈 디렉터리로 마운트되어 FIREBASE_ENABLED=false와 함께 푸시만 비활성된다.
+      - ./secrets:/etc/damoim/secrets:ro
     # 호스트 localhost에만 매핑 → Tailscale Funnel(호스트)이 localhost:8080을 외부로 프록시.
     # 같은 WiFi에서 LAN IP로도 직접 붙고 싶으면 "8080:8080" 으로 바꾼다.
     ports:
