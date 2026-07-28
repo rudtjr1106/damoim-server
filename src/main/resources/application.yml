@@ -84,3 +84,7 @@ app:
     apple:
       bundle-id: ${APPLE_BUNDLE_ID:}                     # 앱 번들 ID(JWS bundleId 대조)
       root-cert-path: ${APPLE_ROOT_CERT_PATH:}           # Apple 루트 CA(AppleRootCA-G3.cer) 경로. 미설정=검증 불가
+  firebase:
+    enabled: ${FIREBASE_ENABLED:false}                   # true면 FCM 발송 활성(로컬 기본 false=푸시 no-op)
+    credentials-path: ${FIREBASE_CREDENTIALS:}           # 서비스계정 JSON 경로(커밋 금지). enabled=true면 필수
+    project-id: ${FIREBASE_PROJECT_ID:}                  # (선택) 명시 프로젝트 ID

@@ -5,6 +5,7 @@ import com.damoim.server.domain.entity.NotificationSettings
 import com.damoim.server.domain.enums.MemberStatus
 import com.damoim.server.domain.enums.NotificationType
 import com.damoim.server.domain.repository.ClubMemberRepository
+import com.damoim.server.domain.repository.DeviceTokenRepository
 import com.damoim.server.domain.repository.NotificationRepository
 import com.damoim.server.domain.repository.NotificationSettingsRepository
 import org.slf4j.LoggerFactory
@@ -25,6 +26,8 @@ class NotificationFanoutService(
     private val notificationRepository: NotificationRepository,
     private val clubMemberRepository: ClubMemberRepository,
     private val notificationSettingsRepository: NotificationSettingsRepository,
+    private val deviceTokenRepository: DeviceTokenRepository,
+    private val pushSender: PushSender,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -50,6 +53,13 @@ class NotificationFanoutService(
             val allowed = recipients.filter { allows(settings[it], event.type) }
             allowed.chunked(BATCH).forEach { chunk ->
                 notificationRepository.saveAll(chunk.map { uid -> newNotification(uid, event) })
+            }
+            // 인앱 알림 저장 후 FCM 푸시(best-effort). push 마스터 토글(설정 65)이 꺼진 유저만 제외
+            // — allows()는 인앱 회귀 방지로 push를 안 걸므로 여기서 별도 게이팅한다(설정 없으면 기본 발송).
+            val pushTargets = allowed.filter { settings[it]?.push != false }
+            if (pushTargets.isNotEmpty()) {
+                val tokens = deviceTokenRepository.findTokensByUserIdIn(pushTargets)
+                pushSender.send(tokens, pushTitle(event.type), event.text.take(TEXT_MAX), pushData(event))
             }
         }.onFailure {
             log.warn(
@@ -82,6 +92,23 @@ class NotificationFanoutService(
             NotificationType.NOTICE, NotificationType.VOTE -> s.newPost
             NotificationType.SCHEDULE, NotificationType.JOIN_APPROVED -> true
         }
+    }
+
+    /** 푸시 알림 제목(타입별). 본문은 event.text 그대로. */
+    private fun pushTitle(type: NotificationType): String = when (type) {
+        NotificationType.JOIN_APPROVED -> "가입 승인"
+        NotificationType.NOTICE -> "새 공지"
+        NotificationType.COMMENT -> "새 댓글"
+        NotificationType.SCHEDULE -> "새 일정"
+        NotificationType.VOTE -> "새 투표"
+    }
+
+    /** 알림 탭 시 딥링크 라우팅용 data 페이로드(전부 문자열). targetType 없으면 이동 대상 없음. */
+    private fun pushData(event: NotifyEvent): Map<String, String> = buildMap {
+        put("type", event.type.name)
+        put("clubId", event.clubId.toString())
+        event.targetType?.let { put("targetType", it.name) }
+        event.targetId?.let { put("targetId", it.toString()) }
     }
 
     private companion object {
