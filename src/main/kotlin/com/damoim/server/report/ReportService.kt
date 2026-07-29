@@ -4,10 +4,14 @@ import com.damoim.server.club.MembershipService
 import com.damoim.server.common.BadRequestException
 import com.damoim.server.common.ForbiddenException
 import com.damoim.server.common.NotFoundException
+import com.damoim.server.common.ConflictException
 import com.damoim.server.common.TimeLabels
+import com.damoim.server.domain.entity.BoardPost
 import com.damoim.server.domain.entity.PostReport
 import com.damoim.server.domain.entity.User
 import com.damoim.server.domain.enums.MemberRole
+import com.damoim.server.domain.enums.ReportAction
+import com.damoim.server.domain.enums.ReportStatus
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.CommentRepository
 import com.damoim.server.domain.repository.PostReportRepository
@@ -15,9 +19,10 @@ import com.damoim.server.domain.repository.UserRepository
 import com.damoim.server.storage.StorageService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
 
 /**
- * 신고(82/34/35). 신고 접수는 활동 회원 누구나, '내 신고 내역'은 본인, '동아리 신고 목록'은
+ * 신고(82/34/35). 신고 접수는 활동 회원 누구나, '내 신고 내역'은 본인, '동아리 신고 목록/처리'는
  * 운영진(coarse 게이트 memberRole != MEMBER — 게시판 모더레이션과 동일)만 볼 수 있다.
  */
 @Service
@@ -79,6 +84,7 @@ class ReportService(
                 targetType = t.type,
                 targetPreview = t.preview,
                 reason = r.reason,
+                status = r.status,
                 reportedUserName = t.reportedUserId?.let { names[it] } ?: "탈퇴한 사용자",
                 reportedUserImageUrl = reportedUser?.let { imageUrl(it) },
                 createdLabel = r.createdAt?.let { TimeLabels.date(it) } ?: "",
@@ -103,11 +109,87 @@ class ReportService(
                 targetType = t.type,
                 targetPreview = t.preview,
                 reason = r.reason,
+                status = r.status,
+                action = r.action,
                 reporterName = names[r.reporterId] ?: "탈퇴한 사용자",
                 reportedUserName = t.reportedUserId?.let { names[it] } ?: "탈퇴한 사용자",
                 createdLabel = r.createdAt?.let { TimeLabels.date(it) } ?: "",
             )
         }
+    }
+
+    /**
+     * 35 운영진 — 신고 처리(대기 → 처리완료/기각). UGC 정책상 신고에는 반드시 조치 결과가 남아야 한다.
+     * DELETE_CONTENT면 대상 글/댓글을 소프트 삭제하고, 같은 대상에 쌓인 나머지 대기 신고도 함께 종결한다.
+     */
+    @Transactional
+    fun handle(userId: Long, reportId: Long, req: HandleReportRequest) {
+        val member = membership.currentMembership(userId)
+        if (member.memberRole == MemberRole.MEMBER) throw ForbiddenException("운영진만 처리할 수 있습니다.", "NO_PERMISSION")
+        val decision = req.decision ?: throw BadRequestException("처리 결과가 필요합니다.")
+        if (decision == ReportStatus.PENDING) throw BadRequestException("처리 결과가 올바르지 않습니다.")
+        // 기각은 콘텐츠를 남기는 판단이므로 삭제 조치와 함께 올 수 없다(상태·조치 모순 방지).
+        if (decision == ReportStatus.REJECTED && req.action != ReportAction.NONE) {
+            throw BadRequestException("기각은 콘텐츠 조치를 함께 할 수 없습니다.")
+        }
+        val report = postReportRepository.findById(reportId)
+            .orElseThrow { NotFoundException("신고를 찾을 수 없습니다.") }
+        // 남의 동아리 신고 조작(IDOR) 차단 — post_reports엔 club_id가 없어 대상 글의 club_id로만 범위를 판정한다.
+        val post = targetPostOf(report) ?: throw NotFoundException("신고를 찾을 수 없습니다.")
+        if (post.clubId != member.clubId) throw NotFoundException("신고를 찾을 수 없습니다.")
+        if (report.status != ReportStatus.PENDING) throw ConflictException("이미 처리된 신고입니다.", "ALREADY_HANDLED")
+
+        if (req.action == ReportAction.DELETE_CONTENT) {
+            deleteTarget(report, post)
+            // 같은 콘텐츠에 여러 명이 신고했으면 한 번의 조치로 전부 종결(운영진 반복 처리 방지).
+            siblingsOf(report).forEach { markHandled(it, userId, decision, req.action) }
+        }
+        markHandled(report, userId, decision, req.action)
+    }
+
+    /** 신고 대상이 속한 글(댓글 신고면 그 댓글의 글). 삭제된 글도 처리 대상이라 deletedAt은 보지 않는다. */
+    private fun targetPostOf(report: PostReport): BoardPost? {
+        val postId = report.postId
+            ?: report.commentId?.let { commentRepository.findById(it).orElse(null)?.postId }
+            ?: return null
+        return boardPostRepository.findById(postId).orElse(null)
+    }
+
+    /** 신고된 콘텐츠 삭제 — 게시판과 동일하게 소프트 삭제(deletedAt). 이미 삭제됐으면 그대로 둔다. */
+    private fun deleteTarget(report: PostReport, post: BoardPost) {
+        val commentId = report.commentId
+        if (commentId != null) {
+            val comment = commentRepository.findById(commentId).orElse(null) ?: return
+            if (comment.deletedAt == null) {
+                comment.deletedAt = Instant.now()
+                commentRepository.save(comment)
+            }
+            return
+        }
+        if (post.deletedAt == null) {
+            post.deletedAt = Instant.now()
+            boardPostRepository.save(post)
+        }
+    }
+
+    /** 같은 대상(글 또는 댓글)의 다른 대기 신고들. */
+    private fun siblingsOf(report: PostReport): List<PostReport> {
+        val commentId = report.commentId
+        val siblings = if (commentId != null) {
+            postReportRepository.findByCommentIdAndStatus(commentId, ReportStatus.PENDING)
+        } else {
+            val postId = report.postId ?: return emptyList()
+            postReportRepository.findByPostIdAndStatus(postId, ReportStatus.PENDING)
+        }
+        return siblings.filter { it.id != report.id }
+    }
+
+    private fun markHandled(report: PostReport, handlerId: Long, decision: ReportStatus, action: ReportAction) {
+        report.status = decision
+        report.action = action
+        report.handledBy = handlerId
+        report.handledAt = Instant.now()
+        postReportRepository.save(report)
     }
 
     private data class TargetInfo(val type: ReportTargetType, val preview: String, val reportedUserId: Long?)

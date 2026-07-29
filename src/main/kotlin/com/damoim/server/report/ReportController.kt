@@ -4,6 +4,7 @@ import com.damoim.server.security.UserPrincipal
 import jakarta.validation.Valid
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
@@ -28,4 +29,12 @@ class ReportController(private val reportService: ReportService) {
     @GetMapping("/api/clubs/me/reports")
     fun clubReports(@AuthenticationPrincipal principal: UserPrincipal): List<ClubReportResponse> =
         reportService.listClubReports(principal.userId)
+
+    /** 35 운영진 — 신고 처리(처리완료/기각 + 콘텐츠 삭제 조치). */
+    @PostMapping("/api/clubs/me/reports/{id}/handle")
+    fun handle(
+        @AuthenticationPrincipal principal: UserPrincipal,
+        @PathVariable id: Long,
+        @Valid @RequestBody req: HandleReportRequest,
+    ) = reportService.handle(principal.userId, id, req)
 }

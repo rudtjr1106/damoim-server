@@ -1,8 +1,14 @@
 package com.damoim.server.settings
 
+import jakarta.validation.constraints.NotNull
 import jakarta.validation.constraints.Size
 
 // ── 차단(83) ──
+
+/** 83 차단 등록 요청 — 대상 userId만 받는다(동아리는 인증 주체의 활성 동아리로 해석, IDOR 차단). */
+data class BlockUserRequest(
+    @field:NotNull val userId: Long? = null,
+)
 
 data class BlockedUserResponse(
     val id: Long,

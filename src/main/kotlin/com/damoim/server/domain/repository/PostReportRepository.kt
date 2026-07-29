@@ -1,6 +1,7 @@
 package com.damoim.server.domain.repository
 
 import com.damoim.server.domain.entity.PostReport
+import com.damoim.server.domain.enums.ReportStatus
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
@@ -33,4 +34,10 @@ interface PostReportRepository : JpaRepository<PostReport, Long> {
         """,
     )
     fun findAllInClub(@Param("clubId") clubId: Long): List<PostReport>
+
+    /** 같은 글에 쌓인 신고 — 콘텐츠를 삭제 조치하면 남은 대기 건도 함께 종결한다(중복 처리 방지). */
+    fun findByPostIdAndStatus(postId: Long, status: ReportStatus): List<PostReport>
+
+    /** 같은 댓글에 쌓인 신고 — 위와 동일. */
+    fun findByCommentIdAndStatus(commentId: Long, status: ReportStatus): List<PostReport>
 }

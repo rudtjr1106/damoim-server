@@ -29,6 +29,22 @@ class PostReport {
     @Column(name = "detail", nullable = true, columnDefinition = "text")
     var detail: String? = null
 
+    /** 처리 상태 — 접수 시 PENDING, 운영진이 RESOLVED/REJECTED로 전이(UGC 정책상 조치 기록 필수). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 16)
+    var status: ReportStatus = ReportStatus.PENDING
+
+    /** 처리 시 취한 조치. 미처리 건은 NULL이라 "조치 없음(NONE)"과 구분된다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "action", nullable = true, length = 20)
+    var action: ReportAction? = null
+
+    @Column(name = "handled_by", nullable = true)
+    var handledBy: Long? = null
+
+    @Column(name = "handled_at", nullable = true)
+    var handledAt: Instant? = null
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant? = null

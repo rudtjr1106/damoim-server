@@ -20,6 +20,8 @@ enum class BoardCategory { NOTICE, FREE, RECRUIT }
 enum class AttachmentType { IMAGE, FILE_DOC, LINK }
 enum class RecruitStatus { OPEN, CLOSED }
 enum class ReportReason { SPAM, ABUSE, SEXUAL, FRAUD, PRIVACY, ETC }
+enum class ReportStatus { PENDING, RESOLVED, REJECTED }   // 신고 처리 상태(운영진이 전이)
+enum class ReportAction { NONE, DELETE_CONTENT }          // 처리 시 취한 조치(미처리면 NULL)
 
 // ── Resources ──
 enum class ResourceFolder { DOCS, ACCOUNTING, PRESENTATION, PHOTOS }
