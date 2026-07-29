@@ -48,6 +48,12 @@ services:
       S3_REGION: ${S3_REGION:-ap-northeast-2}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      # ── 인앱결제 증빙 검증. 운영은 기본 ON(fail-closed) — 끄면 서버가 구독 요청 자체를 거부한다 ──
+      BILLING_VERIFY: ${BILLING_VERIFY:-true}
+      # iOS 앱 번들 ID(JWS bundleId 대조). 비면 App Store 증빙 검증 불가 → 구독 거부.
+      APPLE_BUNDLE_ID: ${APPLE_BUNDLE_ID:-}
+      # Apple 루트 CA(AppleRootCA-G3.cer) — 호스트 ./secrets 에 두면 아래 볼륨으로 이 경로에 마운트된다.
+      APPLE_ROOT_CERT_PATH: ${APPLE_ROOT_CERT_PATH:-/etc/damoim/secrets/AppleRootCA-G3.cer}
       # ── FCM 푸시(Firebase Admin). 미설정(false) 시 서버는 정상 기동하고 푸시만 no-op ──
       FIREBASE_ENABLED: ${FIREBASE_ENABLED:-false}
       # 컨테이너 안에서의 서비스계정 JSON 경로(아래 secrets 볼륨으로 마운트됨).
@@ -56,8 +62,8 @@ services:
     volumes:
       # 업로드된 이미지·파일 바이트 보관 — 컨테이너를 재시작·재빌드해도 업로드 파일 보존.
       - damoim-storage:/var/lib/damoim/storage
-      # FCM 서비스계정 키(호스트 ./secrets → 컨테이너, 읽기전용). 호스트에 secrets/가 없으면
-      # 빈 디렉터리로 마운트되어 FIREBASE_ENABLED=false와 함께 푸시만 비활성된다.
+      # FCM 서비스계정 키 + Apple 루트 CA(호스트 ./secrets → 컨테이너, 읽기전용). 호스트에 secrets/가 없으면
+      # 빈 디렉터리로 마운트되어 FIREBASE_ENABLED=false와 함께 푸시만 비활성된다(결제 검증은 fail-closed).
       - ./secrets:/etc/damoim/secrets:ro
     # 호스트 localhost에만 매핑 → Tailscale Funnel(호스트)이 localhost:8080을 외부로 프록시.
     # 같은 WiFi에서 LAN IP로도 직접 붙고 싶으면 "8080:8080" 으로 바꾼다.

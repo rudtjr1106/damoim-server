@@ -16,11 +16,17 @@ import java.security.interfaces.ECPublicKey
  * ① JWS 헤더의 x5c 인증서 체인을 **설정된 신뢰 루트(Apple 루트 CA)** 까지 PKIX로 검증
  *    — x5c에 포함된 루트는 신뢰하지 않고, 반드시 서버가 소유한 신뢰 루트로 이어져야 통과(위조 서명 차단).
  * ② 리프 인증서 공개키로 ES256 서명 검증.
- * ③ payload 클레임(bundleId 일치·productId·만료) 확인.
+ * ③ payload 클레임(bundleId 일치·productId·transactionId·만료) 확인.
  */
 object AppStoreJwsVerifier {
 
-    data class Payload(val productId: String, val bundleId: String, val expiresMillis: Long?)
+    /** [transactionId]는 결제 1건의 고유 ID — 영수증 재사용 차단(PurchaseLedger)의 키다. */
+    data class Payload(
+        val productId: String,
+        val transactionId: String,
+        val bundleId: String,
+        val expiresMillis: Long?,
+    )
 
     class InvalidReceiptException(message: String) : RuntimeException(message)
 
@@ -47,8 +53,11 @@ object AppStoreJwsVerifier {
         if (bundleId != expectedBundleId) throw InvalidReceiptException("bundleId 불일치.")
         val productId = claims.getStringClaim("productId")
             ?: throw InvalidReceiptException("productId 클레임이 없습니다.")
+        // StoreKit 2 서명 트랜잭션에는 항상 존재 — 없으면 재사용 차단 키가 없다는 뜻이라 통과시키지 않는다.
+        val transactionId = claims.getStringClaim("transactionId")
+            ?: throw InvalidReceiptException("transactionId 클레임이 없습니다.")
         val expires = runCatching { claims.getLongClaim("expiresDate") }.getOrNull()
-        return Payload(productId, bundleId, expires)
+        return Payload(productId, transactionId, bundleId, expires)
     }
 
     /** x5c 리프→중간 체인이 신뢰 루트로 이어지는지 PKIX 검증. x5c에 담긴 자기서명 루트는 경로에서 제외. */
