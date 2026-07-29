@@ -12,3 +12,11 @@ spring:
 server:
   # ALB/프록시가 TLS 종단 → X-Forwarded-Proto를 신뢰해 HTTPS로 인식(HSTS 헤더 실제 방출).
   forward-headers-strategy: framework
+
+app:
+  billing:
+    # 운영 기본값을 true로 뒤집는다(공통 기본값 false는 개발 편의용).
+    # 검증이 꺼진 운영은 곧 "결제 없이 subscribe만 호출하면 PRO" 구멍이므로, 굳이 BILLING_VERIFY=false를
+    # 넣더라도 PurchaseVerifier가 구독 요청 자체를 거부한다(fail-open 금지).
+    # → 운영에서 유료 구독을 받으려면 APPLE_BUNDLE_ID + APPLE_ROOT_CERT_PATH를 반드시 채워야 한다.
+    verify-purchases: ${BILLING_VERIFY:true}
