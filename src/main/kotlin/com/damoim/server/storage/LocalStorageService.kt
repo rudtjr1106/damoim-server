@@ -36,16 +36,19 @@ class LocalStorageService(
         LocalStorage.resolve(key).takeIf { Files.exists(it) }?.let { Files.size(it) }
 
     // S3 presigned처럼 만료·HMAC 서명을 붙인다(무인증 capability URL 방지).
-    private fun sig(key: String) = signer.signedParams(key, props.presignExpirySeconds)
+    // 서명은 연산([StorageOp])에 한정된다 — 조회용으로 발급한 URL의 sig로는 업로드(PUT)가 불가능하다.
+    // ⚠️ op가 서명에 들어가면서 이 변경 이전에 발급된 URL은 모두 403이 된다(의도된 무효화).
+    private fun sig(op: StorageOp, key: String) = signer.signedParams(op, key, props.presignExpirySeconds)
 
     override fun presignUpload(key: String, contentType: String?): PresignedUpload =
-        PresignedUpload("${baseUrl()}/_localstorage/$key?op=put&${sig(key)}", key, props.presignExpirySeconds)
+        PresignedUpload("${baseUrl()}/_localstorage/$key?op=put&${sig(StorageOp.PUT, key)}", key, props.presignExpirySeconds)
 
+    // 다운로드·인라인 뷰는 둘 다 HTTP GET이므로 같은 op로 서명한다(URL의 op 파라미터는 표시용 힌트).
     override fun presignDownload(key: String, downloadFileName: String): String =
-        "${baseUrl()}/_localstorage/$key?op=get&name=$downloadFileName&${sig(key)}"
+        "${baseUrl()}/_localstorage/$key?op=get&name=$downloadFileName&${sig(StorageOp.GET, key)}"
 
     override fun presignView(key: String): String =
-        "${baseUrl()}/_localstorage/$key?op=view&${sig(key)}"
+        "${baseUrl()}/_localstorage/$key?op=view&${sig(StorageOp.GET, key)}"
 
     override fun delete(key: String) {
         runCatching { Files.deleteIfExists(LocalStorage.resolve(key)) }
