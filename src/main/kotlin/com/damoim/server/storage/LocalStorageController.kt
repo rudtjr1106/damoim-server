@@ -35,7 +35,7 @@ class LocalStorageController(private val signer: LocalStorageSigner) {
             throw BadRequestException("업로드 Content-Type이 올바르지 않습니다.", "INVALID_CONTENT_TYPE")
         }
         val key = keyOf(request)
-        verifySignature(request, key)
+        verifySignature(request, StorageOp.PUT, key)
         val target = LocalStorage.resolve(key)
         Files.createDirectories(target.parent)
         request.inputStream.use { input -> Files.newOutputStream(target).use { input.copyTo(it) } }
@@ -46,7 +46,7 @@ class LocalStorageController(private val signer: LocalStorageSigner) {
     @GetMapping("/_localstorage/**")
     fun get(request: HttpServletRequest, response: HttpServletResponse) {
         val key = keyOf(request)
-        verifySignature(request, key)
+        verifySignature(request, StorageOp.GET, key)
         val target = LocalStorage.resolve(key)
         if (!Files.exists(target)) {
             response.status = HttpStatus.NOT_FOUND.value()
@@ -67,11 +67,16 @@ class LocalStorageController(private val signer: LocalStorageSigner) {
     /**
      * presigned 서명·만료 검증. S3 presigned와 동등하게, 유효 서명·미만료가 아니면 403.
      * (경로 화이트리스트/탈출 방어는 keyOf·LocalStorage가 별도로 담당.)
+     *
+     * [op]는 **호출하는 핸들러가 자기 HTTP 메서드로 고정**해서 넘긴다(PUT=쓰기 / GET=읽기).
+     * 요청의 `op` 쿼리 파라미터는 사람이 URL을 볼 때의 힌트일 뿐 검증에 쓰지 않는다 —
+     * 공격자가 고를 수 있는 값이라, 그걸 믿으면 널리 배포된 조회 URL의 sig를 PUT에 붙여
+     * 남의 파일을 덮어쓰는 경로가 다시 열린다.
      */
-    private fun verifySignature(request: HttpServletRequest, key: String) {
+    private fun verifySignature(request: HttpServletRequest, op: StorageOp, key: String) {
         val exp = request.getParameter("exp")?.toLongOrNull()
         val sig = request.getParameter("sig")
-        if (!signer.isValid(key, exp, sig)) {
+        if (!signer.isValid(op, key, exp, sig)) {
             throw ForbiddenException("서명이 유효하지 않거나 만료된 URL입니다.", "INVALID_SIGNATURE")
         }
     }
