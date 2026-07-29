@@ -115,6 +115,7 @@ class MemberService(
             postCount = postCount,
             eventCount = eventCount,
             lastActiveLabel = lastActive?.let { TimeLabels.ago(it) } ?: "활동 없음",
+            userId = member.userId,
         )
     }
 

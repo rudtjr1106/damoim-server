@@ -30,6 +30,9 @@ data class MemberDetailResponse(
     val postCount: Int,             // 작성 글 수(삭제 제외)
     val eventCount: Int,            // 이벤트 참여 수(APPLIED)
     val lastActiveLabel: String,    // "1시간 전" / "활동 없음"
+    // 83 차단(POST /api/blocked)은 사용자 id를 받는데 member.id는 club_member id라 대신 쓸 수 없다.
+    // 상세에서만 사용자 id를 함께 내려 클라가 회원 상세에서 바로 차단할 수 있게 한다.
+    val userId: Long,
 )
 
 /** 44 동아리별 프로필 수정 — 표시 이름 오버라이드(빈값/공백=해제해 users.nickname 복귀). */
