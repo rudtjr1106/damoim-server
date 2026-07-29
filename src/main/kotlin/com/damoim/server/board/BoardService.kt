@@ -20,6 +20,7 @@ import com.damoim.server.domain.enums.MemberStatus
 import com.damoim.server.domain.enums.NotificationTargetType
 import com.damoim.server.domain.enums.NotificationType
 import com.damoim.server.domain.enums.RecruitStatus
+import com.damoim.server.domain.repository.BlockedUserRepository
 import com.damoim.server.domain.repository.BoardPostRepository
 import com.damoim.server.domain.repository.ClubMemberRepository
 import com.damoim.server.domain.repository.CohortRepository
@@ -57,6 +58,7 @@ class BoardService(
     private val cohortRepository: CohortRepository,
     private val userRepository: UserRepository,
     private val recentSearchRepository: RecentSearchRepository,
+    private val blockedUserRepository: BlockedUserRepository,
     private val membership: MembershipService,
     private val aggregates: BoardAggregates,
     private val storageService: StorageService,
@@ -66,8 +68,9 @@ class BoardService(
     @Transactional(readOnly = true)
     fun home(userId: Long): BoardHomeResponse {
         val clubId = membership.currentMembership(userId).clubId
-        val pinned = boardPostRepository.findPinned(clubId, PageRequest.of(0, PINNED_LIMIT))
-        val feed = boardPostRepository.findRecentNonPinned(clubId, PageRequest.of(0, FEED_LIMIT))
+        val blocked = blockedAuthorIds(clubId)
+        val pinned = hideBlocked(boardPostRepository.findPinned(clubId, PageRequest.of(0, PINNED_LIMIT)), blocked)
+        val feed = hideBlocked(boardPostRepository.findRecentNonPinned(clubId, PageRequest.of(0, FEED_LIMIT)), blocked)
         val ctx = summaryCtx(clubId, userId, pinned + feed)
         return BoardHomeResponse(pinned.map { toSummary(it, ctx) }, feed.map { toSummary(it, ctx) })
     }
@@ -76,7 +79,10 @@ class BoardService(
     fun list(userId: Long, category: String?): List<PostSummaryResponse> {
         val clubId = membership.currentMembership(userId).clubId
         val cat = category?.let { parseCategory(it) }
-        val posts = boardPostRepository.findFeed(clubId, cat, PageRequest.of(0, LIST_LIMIT))
+        val posts = hideBlocked(
+            boardPostRepository.findFeed(clubId, cat, PageRequest.of(0, LIST_LIMIT)),
+            blockedAuthorIds(clubId),
+        )
         val ctx = summaryCtx(clubId, userId, posts)
         return posts.map { toSummary(it, ctx) }
     }
@@ -91,7 +97,10 @@ class BoardService(
         recentSearchRepository.prune(userId, RECENT_KEEP)   // 사용자당 상한 유지
         val esc = escapeLike(q)                             // LIKE 메타문자 이스케이프(와일드카드 주입 방지)
         val authorIds = userRepository.findIdsByNicknameContaining(esc).ifEmpty { listOf(-1L) }
-        val posts = boardPostRepository.searchInClub(clubId, esc, authorIds, PageRequest.of(0, LIST_LIMIT))
+        val posts = hideBlocked(
+            boardPostRepository.searchInClub(clubId, esc, authorIds, PageRequest.of(0, LIST_LIMIT)),
+            blockedAuthorIds(clubId),
+        )
         val ctx = summaryCtx(clubId, userId, posts)
         return SearchResultResponse(q, posts.map { toSummary(it, ctx) })
     }
@@ -118,8 +127,11 @@ class BoardService(
     fun detail(userId: Long, postId: Long): PostDetailResponse {
         val clubId = membership.currentMembership(userId).clubId
         val post = loadPostInClub(postId, clubId)
+        // 차단(83) 대상 글은 목록에서 감추는 것만으로 부족 — 링크·딥링크 직접 진입도 없는 글로 취급.
+        val blocked = blockedAuthorIds(clubId)
+        if (isBlocked(post.authorId, blocked)) throw NotFoundException("게시글을 찾을 수 없습니다.")
         val newRead = recordRead(post, userId)
-        return mapDetail(userId, clubId, post, extraView = if (newRead) 1 else 0)
+        return mapDetail(userId, clubId, post, extraView = if (newRead) 1 else 0, blocked = blocked)
     }
 
     // ── 업로드(이미지/문서) ──
@@ -331,11 +343,28 @@ class BoardService(
         return mapOf("isPinned" to post.isPinned)
     }
 
+    // ── 차단(83) 필터 ──
+    /** 동아리 차단 명단(userId 집합). 요청당 1회만 조회해 목록·댓글을 메모리에서 거른다(N+1 방지). */
+    private fun blockedAuthorIds(clubId: Long): Set<Long> =
+        blockedUserRepository.findBlockedUserIds(clubId).toSet()
+
+    private fun isBlocked(authorId: Long?, blocked: Set<Long>) = authorId != null && authorId in blocked
+
+    private fun hideBlocked(posts: List<BoardPost>, blocked: Set<Long>): List<BoardPost> =
+        if (blocked.isEmpty()) posts else posts.filterNot { isBlocked(it.authorId, blocked) }
+
     // ── 매핑/집계 ──
-    private fun mapDetail(userId: Long, clubId: Long, post: BoardPost, extraView: Int = 0): PostDetailResponse {
+    private fun mapDetail(
+        userId: Long,
+        clubId: Long,
+        post: BoardPost,
+        extraView: Int = 0,
+        blocked: Set<Long> = blockedAuthorIds(clubId),
+    ): PostDetailResponse {
         val authors = resolveAuthors(clubId, listOfNotNull(post.authorId))
         val authorInfo = post.authorId?.let { authors[it] } ?: DELETED_AUTHOR
-        val comments = commentRepository.findByPost(post.id)
+        // 차단 대상 댓글은 상세에서 감춘다(commentCount도 이 목록에서 파생돼 자동으로 맞는다).
+        val comments = commentRepository.findByPost(post.id).filterNot { isBlocked(it.authorId, blocked) }
         val commentAuthors = userRepository.findAllById(comments.mapNotNull { it.authorId }).associateBy { it.id }
         // 44 댓글 작성자도 동아리별 표시 이름 우선(사진은 users에서).
         val commentNames = membership.displayNamesFor(clubId, comments.mapNotNull { it.authorId })
