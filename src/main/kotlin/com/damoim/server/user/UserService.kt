@@ -10,6 +10,7 @@ import com.damoim.server.domain.enums.MemberRole
 import com.damoim.server.domain.enums.MemberStatus
 import com.damoim.server.domain.enums.UserStatus
 import com.damoim.server.domain.repository.ClubMemberRepository
+import com.damoim.server.domain.repository.DeviceTokenRepository
 import com.damoim.server.domain.repository.UserOAuthAccountRepository
 import com.damoim.server.domain.repository.UserRepository
 import com.damoim.server.storage.StorageKeys
@@ -26,6 +27,7 @@ class UserService(
     private val clubMemberRepository: ClubMemberRepository,
     private val clubService: ClubService,
     private val userOAuthAccountRepository: UserOAuthAccountRepository,
+    private val deviceTokenRepository: DeviceTokenRepository,
     private val sessionRevoker: SessionRevoker,
 ) {
 
@@ -109,7 +111,9 @@ class UserService(
         user.profileImageKey = null
         userRepository.save(user)
         // 4) 소셜 링크 삭제(같은 카카오로 새 계정 재가입 가능 — WITHDRAWN 부활 방지) + 전 세션 폐기.
+        //    푸시 토큰도 함께 제거 — 소프트 탈퇴라 CASCADE가 없고, 세션 폐기 뒤엔 클라가 해제를 못 보낸다.
         userOAuthAccountRepository.deleteByUserId(userId)
+        deviceTokenRepository.deleteByUserId(userId)
         sessionRevoker.revokeAllSessions(userId, Instant.now())
     }
 
