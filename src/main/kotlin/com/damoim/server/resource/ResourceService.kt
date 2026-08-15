@@ -15,6 +15,7 @@ import com.damoim.server.domain.enums.ResourceFolder
 import com.damoim.server.domain.enums.ResourceVisibility
 import com.damoim.server.domain.repository.ClubMemberRepository
 import com.damoim.server.domain.repository.ClubRepository
+import com.damoim.server.domain.repository.PostAttachmentRepository
 import com.damoim.server.domain.repository.ResourceCohortRepository
 import com.damoim.server.domain.repository.ResourceRepository
 import com.damoim.server.domain.repository.UserRepository
@@ -31,6 +32,7 @@ class ResourceService(
     private val membership: MembershipService,
     private val resourceRepository: ResourceRepository,
     private val resourceCohortRepository: ResourceCohortRepository,
+    private val postAttachmentRepository: PostAttachmentRepository,
     private val clubMemberRepository: ClubMemberRepository,
     private val clubRepository: ClubRepository,
     private val userRepository: UserRepository,
@@ -64,7 +66,7 @@ class ResourceService(
     @Transactional(readOnly = true)
     fun storage(userId: Long): StorageUsageResponse {
         val clubId = membership.currentMembership(userId).clubId
-        val used = resourceRepository.sumSizeBytes(clubId)
+        val used = usedBytes(clubId)   // 집행과 같은 합계를 보여준다(표시와 집행이 어긋나면 사용자가 이유를 모른다)
         val quota = subscriptionService.effectiveLimits(clubId).storageQuotaBytes
         return StorageUsageResponse(
             usedBytes = used,
@@ -73,6 +75,25 @@ class ResourceService(
             quotaLabel = SizeLabels.of(quota),
             percent = if (quota <= 0) 0 else ((used * 100 / quota).coerceIn(0, 100)).toInt(),
         )
+    }
+
+    /**
+     * 동아리 저장 사용량 = 자료실 + 게시판 첨부. 둘 다 같은 버킷·같은 플랜 쿼터를 쓰므로 한 곳에서 합산한다
+     * (예전엔 자료실만 세서 게시글 첨부는 쿼터에도 사용량 표시에도 안 잡혔다).
+     * 소프트삭제된 자료·글은 양쪽 쿼리에서 빠져 삭제하면 용량이 회수된다.
+     */
+    fun usedBytes(clubId: Long): Long =
+        resourceRepository.sumSizeBytes(clubId) + postAttachmentRepository.sumSizeBytesByClub(clubId)
+
+    /**
+     * 저장 쿼터 집행 공용 지점 — 자료실 업로드·등록과 게시판 첨부 업로드(BoardService.createUploadUrl)가 공유한다.
+     * 41 플랜별 저장 용량 집행 — 구독 티어(해지 만료 반영)에 따른 실효 쿼터.
+     */
+    fun requireQuota(clubId: Long, addBytes: Long) {
+        val quota = subscriptionService.effectiveLimits(clubId).storageQuotaBytes
+        if (usedBytes(clubId) + addBytes > quota) {
+            throw ConflictException("저장공간이 부족합니다.", "STORAGE_FULL")
+        }
     }
 
     /** 1단계 — 업로드 presigned URL 발급(권한·용량 검증). */
@@ -166,14 +187,6 @@ class ResourceService(
     private fun requireFolderPermission(member: ClubMember, folder: ResourceFolder) {
         if (!canManage(member) && folder != ResourceFolder.PHOTOS) {
             throw ForbiddenException("이 폴더에는 운영진만 올릴 수 있습니다.", "FOLDER_FORBIDDEN")
-        }
-    }
-
-    private fun requireQuota(clubId: Long, addBytes: Long) {
-        // 41 플랜별 저장 용량 집행 — 구독 티어(해지 만료 반영)에 따른 실효 쿼터.
-        val quota = subscriptionService.effectiveLimits(clubId).storageQuotaBytes
-        if (resourceRepository.sumSizeBytes(clubId) + addBytes > quota) {
-            throw ConflictException("저장공간이 부족합니다.", "STORAGE_FULL")
         }
     }
 

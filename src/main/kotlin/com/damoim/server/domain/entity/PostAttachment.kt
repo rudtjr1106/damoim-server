@@ -34,6 +34,7 @@ class PostAttachment {
     @Column(name = "file_name", nullable = true, length = 255)
     var fileName: String? = null
 
+    /** IMAGE/FILE_DOC 실제 오브젝트 크기. 자료실과 합쳐 동아리 저장 쿼터에 합산되므로 항상 기록한다(LINK만 null). */
     @Column(name = "size_bytes", nullable = true)
     var sizeBytes: Long? = null
 

@@ -35,6 +35,7 @@ import com.damoim.server.domain.repository.RecentSearchRepository
 import com.damoim.server.domain.repository.RecruitRepository
 import com.damoim.server.domain.repository.UserRepository
 import com.damoim.server.notification.NotifyClubEvent
+import com.damoim.server.resource.ResourceService
 import com.damoim.server.storage.StorageKeys
 import com.damoim.server.storage.StorageService
 import org.springframework.context.ApplicationEventPublisher
@@ -62,6 +63,8 @@ class BoardService(
     private val membership: MembershipService,
     private val aggregates: BoardAggregates,
     private val storageService: StorageService,
+    // 게시판 첨부도 자료실과 같은 동아리 저장 쿼터를 쓴다 — 집행 지점을 자료실과 공유한다.
+    private val resourceService: ResourceService,
     private val events: ApplicationEventPublisher,
 ) {
     // ── 조회 ──
@@ -141,6 +144,9 @@ class BoardService(
         val member = membership.currentMembership(userId)
         val cap = if (req.kind == "IMAGE") IMAGE_MAX_BYTES else DOC_MAX_BYTES
         if (req.sizeBytes > cap) throw BadRequestException("파일이 너무 큽니다.", "FILE_TOO_LARGE")
+        // 파일 1건 상한만 보던 탓에 FREE 동아리도 글을 반복 작성해 스토리지를 무제한으로 쓸 수 있었다.
+        // presigned URL 없이는 바이트가 들어올 수 없으므로 발급 시점이 게시판 첨부의 쿼터 관문이다.
+        resourceService.requireQuota(member.clubId, req.sizeBytes)
         val up = storageService.presignUpload(StorageKeys.forPost(member.clubId, req.fileName), req.contentType)
         return BoardUploadUrlResponse(up.url, up.key, up.expiresInSeconds)
     }
@@ -197,7 +203,13 @@ class BoardService(
                     when (type) {
                         AttachmentType.IMAGE -> {
                             // 실오브젝트 존재·소유권·상한 검증 후 키 저장. 라벨(캡션)은 선택.
-                            storageKey = verifyMedia(clubId, a.storageKey, IMAGE_MAX_BYTES).key
+                            val vm = verifyMedia(clubId, a.storageKey, IMAGE_MAX_BYTES)
+                            storageKey = vm.key
+                            // 이미지도 쿼터 합산 대상이라 크기를 반드시 남긴다(예전엔 실측해놓고 버려서
+                            // 사후 집계조차 불가능했다). 실크기 우선, 크기를 못 재는 스토리지 구현에선
+                            // 클라 선언값 폴백 — 클라는 이미지에 크기를 안 보내므로 여기서 던지면 첨부가
+                            // 통째로 막힌다. 마지막 폴백은 0(합산에서 빠질 뿐, 행은 항상 크기를 갖는다).
+                            sizeBytes = vm.sizeBytes ?: a.fileSizeBytes ?: 0L
                             imageLabel = a.imageLabel?.takeIf { it.isNotBlank() }
                         }
                         AttachmentType.FILE_DOC -> {
