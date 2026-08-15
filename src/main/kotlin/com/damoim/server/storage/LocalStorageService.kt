@@ -51,10 +51,19 @@ class LocalStorageService(
         "${baseUrl()}/_localstorage/$key?op=view&${sig(StorageOp.GET, key)}"
 
     override fun delete(key: String) {
-        runCatching { Files.deleteIfExists(LocalStorage.resolve(key)) }
+        runCatching {
+            val target = LocalStorage.resolve(key)
+            Files.deleteIfExists(target)
+            LocalStorage.pruneEmptyParents(target)
+        }
     }
 
-    override fun listObjects(prefix: String): List<StoredObject> = emptyList()  // 로컬은 orphan 스윕 비대상
+    /**
+     * 프리픽스 아래 실제 파일 목록(orphan 스윕용). 전엔 빈 목록이라 provider=local에선 회수 경로가
+     * 아예 없었다 — 자가호스팅 운영 기본값이 local이라 지운 첨부·교체된 프로필 사진의 바이트가
+     * 영원히 쌓였다. S3의 ListObjectsV2와 같은 계약(키=루트 기준 상대경로)으로 채운다.
+     */
+    override fun listObjects(prefix: String): List<StoredObject> = LocalStorage.list(prefix)
 
     /**
      * presigned URL의 베이스. 명시 설정(STORAGE_LOCAL_BASE_URL)이 있으면 그걸, 없으면 현재 요청의
@@ -89,5 +98,36 @@ object LocalStorage {
         val target = root.resolve(key).normalize()
         require(target.startsWith(root)) { "잘못된 스토리지 키입니다." }
         return target
+    }
+
+    /**
+     * 삭제 후 남은 빈 상위 디렉터리를 루트 직전까지 걷어낸다. 키가 `prefix/{id}/{uuid}/{파일}`이라
+     * 파일만 지우면 업로드 1건당 빈 uuid 디렉터리가 영구히 남는다(스윕이 돌수록 쌓임).
+     * 비어있지 않은 디렉터리는 삭제가 실패하므로(DirectoryNotEmptyException) 형제 파일은 안전하다.
+     */
+    fun pruneEmptyParents(deleted: Path) {
+        var dir = deleted.parent
+        while (dir != null && dir != root && dir.startsWith(root)) {
+            if (!runCatching { Files.deleteIfExists(dir) }.getOrDefault(false)) return
+            dir = dir.parent
+        }
+    }
+
+    /**
+     * [prefix] 이하의 실제 파일 전부(키 = 루트 기준 상대경로, S3 키와 동일 형태). orphan 스윕용.
+     * 프리픽스 디렉터리가 아직 없으면 빈 목록(업로드가 한 번도 없던 프리픽스 — 정상).
+     * 키 구분자는 항상 '/'로 정규화한다 — DB에 저장된 키와 문자열 비교로 참조 여부를 판정하기 때문.
+     */
+    fun list(prefix: String): List<StoredObject> {
+        val base = resolve(prefix.trimEnd('/'))
+        if (!Files.isDirectory(base)) return emptyList()
+        val out = mutableListOf<StoredObject>()
+        Files.walk(base).use { paths ->
+            paths.filter { Files.isRegularFile(it) }.forEach { path ->
+                val key = root.relativize(path).joinToString("/") { it.toString() }
+                out += StoredObject(key, Files.getLastModifiedTime(path).toMillis())
+            }
+        }
+        return out
     }
 }

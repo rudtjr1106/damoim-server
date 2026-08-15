@@ -1,5 +1,6 @@
 package com.damoim.server.config
 
+import com.damoim.server.storage.StorageProperties
 import com.damoim.server.web.RequestSizeLimitFilter
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.web.servlet.FilterRegistrationBean
@@ -11,11 +12,13 @@ import org.springframework.core.Ordered
 @Configuration
 class WebFilterConfig {
 
+    /** 업로드 상한은 스토리지 설정(app.storage.max-upload-bytes)을 그대로 쓴다 — 컨트롤러의 카운팅 상한과 같은 값이어야 한다. */
     @Bean
     fun requestSizeLimitFilter(
         @Value("\${app.request.max-body-bytes:1048576}") maxBytes: Long,
+        storageProperties: StorageProperties,
     ): FilterRegistrationBean<RequestSizeLimitFilter> =
-        FilterRegistrationBean(RequestSizeLimitFilter(maxBytes)).apply {
+        FilterRegistrationBean(RequestSizeLimitFilter(maxBytes, storageProperties.maxUploadBytes)).apply {
             order = Ordered.HIGHEST_PRECEDENCE
             addUrlPatterns("/*")
         }

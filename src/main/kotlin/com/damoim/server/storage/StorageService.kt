@@ -25,7 +25,7 @@ interface StorageService {
 
     fun delete(key: String)
 
-    /** 프리픽스 아래 오브젝트 목록(orphan 스윕용). 로컬 스텁은 빈 목록. */
+    /** 프리픽스 아래 오브젝트 목록(orphan 스윕용). S3=ListObjectsV2 / local=저장 루트 walk. */
     fun listObjects(prefix: String): List<StoredObject>
 }
 
@@ -40,6 +40,13 @@ data class StorageProperties(
     val quotaBytes: Long,
     val presignExpirySeconds: Long,
     val s3: S3Props,
+    /**
+     * presigned PUT 1건의 바이트 상한. 두 곳에서 쓰인다 —
+     * [com.damoim.server.web.RequestSizeLimitFilter]가 Content-Length로 조기 413,
+     * [LocalStorageController]가 실제 복사 바이트를 세서 위조·chunked까지 막는다.
+     * (provider=s3면 바이트가 서버를 안 거치므로 S3 버킷 정책의 몫이다.)
+     */
+    val maxUploadBytes: Long = 52_428_800,
     val orphanSweep: OrphanSweep = OrphanSweep(),
     val local: LocalProps = LocalProps(),
 ) {

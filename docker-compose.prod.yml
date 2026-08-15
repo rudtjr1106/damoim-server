@@ -41,9 +41,15 @@ services:
       # provider=local의 파일 저장 위치 — 반드시 볼륨 마운트 경로여야 한다.
       # (미지정 시 컨테이너 /tmp에 쌓여 재빌드·재생성마다 업로드 파일이 전부 사라진다)
       STORAGE_LOCAL_DIR: /var/lib/damoim/storage
-      # provider=local의 presigned URL 서명 시크릿(HMAC). 반드시 고정 랜덤값 주입
-      # (미설정 시 재시작마다 랜덤 → 기존 파일 URL이 만료·무효화된다). 32바이트+ 권장.
-      STORAGE_LOCAL_SIGN_SECRET: ${STORAGE_LOCAL_SIGN_SECRET:-}
+      # provider=local의 presigned URL 서명 시크릿(HMAC, 32바이트+). 고정 랜덤값이어야 한다 —
+      # 미설정이면 서버가 부팅을 거부하므로(prod fail-fast), 빈 값으로 뜨고 나서 "사진이 전부 403"이
+      # 되는 대신 `docker compose up` 시점에 바로 드러나게 :? 로 막는다.
+      STORAGE_LOCAL_SIGN_SECRET: ${STORAGE_LOCAL_SIGN_SECRET:?STORAGE_LOCAL_SIGN_SECRET 필요 — .env에 openssl rand -base64 48 값 (S3만 쓸 거면 아무 값이나)}
+      # presigned PUT 1건의 바이트 상한(기본 50MB). 큰 자료실 파일을 받으려면 .env에서 올린다.
+      STORAGE_MAX_UPLOAD_BYTES: ${STORAGE_MAX_UPLOAD_BYTES:-52428800}
+      # orphan(어느 DB 행도 참조 안 하는 파일) 정리 배치 — 삭제·교체된 첨부/프로필 사진 바이트 회수.
+      # 켜두지 않으면 볼륨이 계속 부푼다. 매일 04:00, 업로드 후 24h 이내 파일은 등록 대기로 보고 건너뜀.
+      STORAGE_ORPHAN_SWEEP: ${STORAGE_ORPHAN_SWEEP:-true}
       S3_BUCKET: ${S3_BUCKET:-}
       S3_REGION: ${S3_REGION:-ap-northeast-2}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}

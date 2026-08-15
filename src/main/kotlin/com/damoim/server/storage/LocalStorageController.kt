@@ -2,8 +2,10 @@ package com.damoim.server.storage
 
 import com.damoim.server.common.BadRequestException
 import com.damoim.server.common.ForbiddenException
+import com.damoim.server.web.writePayloadTooLarge
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -11,8 +13,10 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.util.UriUtils
+import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.Path
 
 /**
  * 로컬 개발용 스토리지 엔드포인트(provider=local 전용). presigned 흐름을 실제로 완성하기 위해
@@ -23,9 +27,19 @@ import java.nio.file.Files
  */
 @RestController
 @ConditionalOnProperty(name = ["app.storage.provider"], havingValue = "local", matchIfMissing = true)
-class LocalStorageController(private val signer: LocalStorageSigner) {
+class LocalStorageController(
+    private val signer: LocalStorageSigner,
+    private val props: StorageProperties,
+) {
 
-    /** 업로드 — presigned PUT. 바디 바이트를 키 경로에 저장한다. */
+    private val log = LoggerFactory.getLogger(javaClass)
+
+    /**
+     * 업로드 — presigned PUT. 바디 바이트를 키 경로에 저장한다.
+     * 상한(app.storage.max-upload-bytes)은 [RequestSizeLimitFilter][com.damoim.server.web.RequestSizeLimitFilter]가
+     * Content-Length로 먼저 걸러도 여기서 **한 번 더** 센다 — Content-Length는 클라가 정하는 값이고
+     * chunked면 아예 없어서, 필터만으론 디스크가 무제한으로 찬다.
+     */
     @PutMapping("/_localstorage/**")
     fun put(request: HttpServletRequest, response: HttpServletResponse) {
         // form-urlencoded면 Spring의 FormContentFilter가 getParameter()용으로 바디를 먼저 다 읽어버려
@@ -38,8 +52,45 @@ class LocalStorageController(private val signer: LocalStorageSigner) {
         verifySignature(request, StorageOp.PUT, key)
         val target = LocalStorage.resolve(key)
         Files.createDirectories(target.parent)
-        request.inputStream.use { input -> Files.newOutputStream(target).use { input.copyTo(it) } }
+        request.inputStream.use { input ->
+            if (!copyLimited(input, target, props.maxUploadBytes)) {
+                log.warn("업로드 상한 초과로 거부 key={} limit={}", key, props.maxUploadBytes)
+                writePayloadTooLarge(response)
+                return
+            }
+        }
         response.status = HttpStatus.OK.value()
+    }
+
+    /**
+     * [input]을 [target]에 쓰되 누적이 [limit]을 넘는 순간 중단하고 false. 정상 완료면 true.
+     *
+     * 초과·중도실패 시 **쓰던 파일을 지운다** — 남겨두면 반쪽 바이트가 디스크(=쿼터)만 먹고,
+     * 등록 단계의 objectSizeOrNull은 "업로드 됨"으로 보여 깨진 파일이 정상처럼 등록된다.
+     */
+    private fun copyLimited(input: InputStream, target: Path, limit: Long): Boolean {
+        var written = 0L
+        var exceeded = false
+        try {
+            Files.newOutputStream(target).use { out ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    written += read
+                    if (written > limit) {
+                        exceeded = true
+                        break
+                    }
+                    out.write(buffer, 0, read)
+                }
+            }
+        } catch (e: Exception) {
+            runCatching { Files.deleteIfExists(target) }
+            throw e
+        }
+        if (exceeded) runCatching { Files.deleteIfExists(target) }
+        return !exceeded
     }
 
     /** 다운로드/인라인 뷰 — presigned GET. 저장된 바이트를 그대로 서빙(클라가 디코드). */

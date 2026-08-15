@@ -1,6 +1,8 @@
 package com.damoim.server.storage
 
+import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.core.env.Environment
 import org.springframework.stereotype.Component
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -27,17 +29,39 @@ enum class StorageOp(val value: String) { PUT("put"), GET("get") }
  * ⚠️ 서명 입력에 op가 추가되면서 **이 변경 이전에 발급된 URL은 전부 무효(403)가 된다** — 의도된 것이다.
  * 클라는 만료 시 URL을 재발급받는 흐름이므로 재요청하면 정상화되고, 서버에 남은 바이트는 영향 없다.
  *
- * 서명 시크릿은 `STORAGE_LOCAL_SIGN_SECRET`(app.storage.local.sign-secret)로 주입한다. 미설정이면
- * 부팅마다 랜덤 시크릿을 생성한다 — 재시작 시 기존 URL이 무효화되지만(로컬 개발엔 무해), 커밋된
- * 알려진 키가 없어 위조가 불가능하다. **자가호스팅 운영에선 반드시 고정 시크릿을 주입**할 것.
+ * 서명 시크릿은 `STORAGE_LOCAL_SIGN_SECRET`(app.storage.local.sign-secret)로 주입한다.
+ *
+ * 시크릿 결정([resolveSecret]) — [com.damoim.server.security.JwtTokenProvider]와 같은 규칙:
+ *  - 제공 + 32바이트 이상 → 그 시크릿 사용.
+ *  - 미제공(blank) & prod 프로파일 → 부팅 실패(fail-fast). 랜덤 폴백을 운영에서 허용하면 재시작마다
+ *    시크릿이 바뀌어 **이미 배포된 presigned URL이 전부 403**이 된다(사진이 통째로 안 보임).
+ *  - 미제공 & 비-prod → 부팅마다 랜덤(재시작 시 기존 URL 무효 — 개발엔 무해). 커밋된 알려진 키가
+ *    없어 위조는 불가능하다.
  */
 @Component
 @ConditionalOnProperty(name = ["app.storage.provider"], havingValue = "local", matchIfMissing = true)
-class LocalStorageSigner(props: StorageProperties) {
+class LocalStorageSigner(props: StorageProperties, environment: Environment) {
 
-    private val secret: ByteArray = props.local.signSecret
-        .takeIf { it.isNotBlank() }?.toByteArray(Charsets.UTF_8)
-        ?: ByteArray(32).also { SecureRandom().nextBytes(it) }
+    private val log = LoggerFactory.getLogger(javaClass)
+    private val secret: ByteArray = resolveSecret(props.local.signSecret, environment)
+
+    private fun resolveSecret(signSecret: String, env: Environment): ByteArray {
+        if (signSecret.isBlank()) {
+            val isProd = env.activeProfiles.contains("prod")
+            check(!isProd) {
+                "app.storage.local.sign-secret(STORAGE_LOCAL_SIGN_SECRET)은 운영에서 필수입니다. " +
+                    "미주입 시 재시작마다 서명 키가 바뀌어 기존 파일 URL이 전부 403이 됩니다. " +
+                    "`openssl rand -base64 48`로 생성한 고정값을 주입하세요."
+            }
+            log.warn("app.storage.local.sign-secret 미설정 — 개발용 임시 랜덤 시크릿을 생성합니다(재시작 시 기존 URL 무효). 운영 금지.")
+            return ByteArray(32).also { SecureRandom().nextBytes(it) }
+        }
+        val bytes = signSecret.toByteArray(Charsets.UTF_8)
+        require(bytes.size >= MIN_SECRET_BYTES) {
+            "app.storage.local.sign-secret must be at least $MIN_SECRET_BYTES bytes for HMAC-SHA256."
+        }
+        return bytes
+    }
 
     /** [op]에 한정된 `exp`(만료 epoch초)와 `sig`(hex HMAC)를 쿼리스트링 조각으로 반환. */
     fun signedParams(op: StorageOp, key: String, ttlSeconds: Long): String {
@@ -64,5 +88,10 @@ class LocalStorageSigner(props: StorageProperties) {
         mac.init(SecretKeySpec(secret, "HmacSHA256"))
         return mac.doFinal("${op.value}|$key|$exp".toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+    }
+
+    private companion object {
+        /** SHA-256 출력 길이(=권장 키 강도). JWT 시크릿과 같은 하한을 요구해 약한 키를 배제한다. */
+        const val MIN_SECRET_BYTES = 32
     }
 }

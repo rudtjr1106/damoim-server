@@ -58,21 +58,26 @@ app:
     provider: ${STORAGE_PROVIDER:local}                  # local(개발 실동작 디스크) | s3
     quota-bytes: ${STORAGE_QUOTA_BYTES:5368709120}       # 동아리당 5GB
     presign-expiry-seconds: ${STORAGE_PRESIGN_EXPIRY:600}
+    # presigned PUT 1건의 바이트 상한 50MB. provider=local에선 필터가 Content-Length로 조기 413,
+    # 컨트롤러가 실제 복사 바이트를 세서 강제한다(chunked·Content-Length 위조 대비). s3는 서버를 안 거침.
+    # 게시판·프로필·동아리 이미지는 도메인 상한(5~25MB)이 더 낮지만 자료실은 파일당 상한이 없어
+    # (동아리 쿼터만 있음) 이 값이 사실상 자료실 파일 1개의 상한이 된다 — 더 큰 파일을 받으려면 올릴 것.
+    max-upload-bytes: ${STORAGE_MAX_UPLOAD_BYTES:52428800}
     local:
       # provider=local의 presigned URL 베이스. 비우면 요청 주소에서 파생(프록시 뒤=X-Forwarded-* 반영).
       # 실기기에서 host가 어긋나면 명시(예: https://xxx.ts.net).
       base-url: ${STORAGE_LOCAL_BASE_URL:}
       # provider=local의 바이트 저장 루트. 비우면 tmp(컨테이너 재생성 시 소실 — 로컬 개발 전용).
-      # 컨테이너 배포에선 반드시 영구 볼륨 경로 주입(예: /var/lib/damoim/storage).
+      # 운영(prod)은 application-prod.yml이 기본값을 영구 경로로 올린다 — 볼륨 마운트 필수.
       dir: ${STORAGE_LOCAL_DIR:}
-      # presigned URL 서명 시크릿(HMAC). 비우면 부팅마다 랜덤(재시작 시 기존 URL 무효 — 개발 무해).
-      # 자가호스팅 운영에선 반드시 고정 시크릿 주입(재시작에도 URL 유효 유지 + 위조 방지).
+      # presigned URL 서명 시크릿(HMAC, 32바이트+). 비우면 부팅마다 랜덤(재시작 시 기존 URL 무효 — 개발 무해).
+      # prod 프로파일 + provider=local에서 비어 있으면 LocalStorageSigner가 부팅을 거부한다(fail-fast).
       sign-secret: ${STORAGE_LOCAL_SIGN_SECRET:}
     s3:
       bucket: ${S3_BUCKET:}
       region: ${S3_REGION:ap-northeast-2}
     orphan-sweep:
-      enabled: ${STORAGE_ORPHAN_SWEEP:false}          # S3 orphan 정리 배치(운영 S3에서만 켬)
+      enabled: ${STORAGE_ORPHAN_SWEEP:false}          # orphan 정리 배치(local/s3 공통 — 운영에서 켬)
       grace-hours: ${STORAGE_ORPHAN_GRACE_HOURS:24}    # 최근 업로드(등록 대기) 보호 유예
       cron: ${STORAGE_ORPHAN_CRON:0 0 4 * * *}         # 매일 04:00
   request:
@@ -86,6 +91,9 @@ app:
     apple:
       bundle-id: ${APPLE_BUNDLE_ID:}                     # 앱 번들 ID(JWS bundleId 대조)
       root-cert-path: ${APPLE_ROOT_CERT_PATH:}           # Apple 루트 CA(AppleRootCA-G3.cer) 경로. 미설정=검증 불가
+      # 허용할 영수증 환경(쉼표 구분). 비우면 프로파일로 자동 판정 — prod=Production만, 그 외=Sandbox+Production.
+      # ⚠️ 운영에선 비워 둘 것. 채우면(예: Sandbox) 샌드박스 영수증으로 유료 플랜을 켤 수 있다.
+      environment: ${APPLE_ENVIRONMENT:}
     play:
       package-name: ${PLAY_PACKAGE_NAME:}                # Play Console 패키지명(예: com.damoim.app)
       # Play Developer API 서비스계정 JSON 경로(커밋 금지). 미설정=PLAY 결제 거부(현행).
