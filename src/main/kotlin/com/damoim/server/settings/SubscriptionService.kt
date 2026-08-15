@@ -26,7 +26,8 @@ data class ClubLimits(val memberLimit: Int, val storageQuotaBytes: Long)
 
 /**
  * 구독(27/29/49/50). 조회·결제·해지는 동아리장 전용(빌링은 리더 관리 영역). 플랜 카탈로그는 인증만.
- * ⚠️ 인앱결제 영수증 서버 검증은 미구현(하드닝) — 현재는 클라의 결제 성공 신고를 신뢰.
+ * 인앱결제 영수증은 [PurchaseVerifier]가 스토어 기준으로 재검증하며(fail-closed), 검증된 영수증의
+ * 만료 시각이 곧 다음 갱신일이 된다.
  */
 @Service
 class SubscriptionService(
@@ -80,7 +81,7 @@ class SubscriptionService(
             return toState(current, clubId, isLeader = true)
         }
         // 결제 증빙 스토어 재검증(fail-closed) — 우회 후 직접 호출 무료 구독 차단. verify-purchases=false면 통과(dev).
-        purchaseVerifier.verify(req.platform, req.productId, req.purchaseToken, tier)
+        val receipt = purchaseVerifier.verify(req.platform, req.productId, req.purchaseToken, tier)
         val now = Instant.now()
         val sub = (current ?: Subscription().apply { this.clubId = clubId }).apply {
             this.tier = tier
@@ -88,7 +89,9 @@ class SubscriptionService(
             storageQuotaBytes = plan.storageQuotaBytes
             status = SubscriptionStatus.ACTIVE
             startedAt = now
-            nextBillingAt = now.plus(Duration.ofDays(BILLING_CYCLE_DAYS))
+            // 갱신일은 영수증이 보장하는 만료 시각이 진실 — 서버 30일 상수는 증빙이 없을 때(dev)의 폴백이다.
+            nextBillingAt = receipt?.expiresAt?.takeIf { it.isAfter(now) }
+                ?: now.plus(Duration.ofDays(BILLING_CYCLE_DAYS))
             canceledAt = null
         }
         subscriptionRepository.save(sub)

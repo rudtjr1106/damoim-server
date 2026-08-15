@@ -21,6 +21,12 @@ data class BillingProperties(
         val bundleId: String = "",
         /** Apple 루트 CA 인증서(예: AppleRootCA-G3.cer) 경로. 미설정이면 App Store 검증 fail-closed. */
         val rootCertPath: String = "",
+        /**
+         * 허용할 영수증 environment 클레임(쉼표 구분, 예: `Production` / `Sandbox,Production`).
+         * 비우면 프로파일로 자동 결정 — 운영은 Production만, 개발/로컬은 Sandbox까지 허용.
+         * 샌드박스 영수증도 Apple이 정식 서명하므로, 이 대조가 없으면 테스트 결제로 유료 플랜이 켜진다.
+         */
+        val environment: String = "",
     )
 
     /** Play Developer API 검증 자리(PlayDeveloperApiVerifier 주석 참고). 둘 다 채워져야 '구성됨'. */

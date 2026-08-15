@@ -9,28 +9,58 @@ import org.springframework.stereotype.Component
 import java.io.File
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.time.Instant
+
+/** 운영 프로파일 이름 — 검증 비활성/샌드박스 허용 여부가 이걸로 갈린다. */
+private const val PROD_PROFILE = "prod"
 
 /**
  * 스토어에서 검증에 성공한 결제 증빙. [transactionId]는 스토어가 발급한 트랜잭션 고유 ID로,
  * 영수증 재사용(같은 결제로 여러 동아리 구독)을 막는 키다.
+ * [expiresAt]은 영수증이 보장하는 구독 만료 시각(없는 스토어/상품도 있어 nullable) —
+ * 구독의 다음 결제일을 서버 상수가 아니라 영수증 기준으로 잡는 데 쓴다.
  */
-data class VerifiedReceipt(val productId: String, val transactionId: String)
+data class VerifiedReceipt(
+    val productId: String,
+    val transactionId: String,
+    val expiresAt: Instant? = null,
+)
 
 /** App Store 결제 증빙(JWS) 검증기 — 검증 결과 반환, 실패 시 예외. 테스트에서 대체 가능하도록 인터페이스. */
 interface AppleReceiptVerifier {
     fun verify(jws: String): VerifiedReceipt
 }
 
+/**
+ * 허용할 App Store environment 집합 결정. 설정([BillingProperties.Apple.environment])이 있으면 그대로,
+ * 비면 프로파일 기본값 — 운영은 Production만, 개발/로컬은 Sandbox(테스트 계정 결제)까지 허용.
+ */
+internal fun resolveAppleEnvironments(configured: String, prodProfile: Boolean): Set<String> {
+    val explicit = configured.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    return when {
+        explicit.isNotEmpty() -> explicit.toSet()
+        prodProfile -> setOf(AppStoreJwsVerifier.ENV_PRODUCTION)
+        else -> setOf(AppStoreJwsVerifier.ENV_SANDBOX, AppStoreJwsVerifier.ENV_PRODUCTION)
+    }
+}
+
 @Component
-class AppStoreReceiptVerifier(private val props: BillingProperties) : AppleReceiptVerifier {
+class AppStoreReceiptVerifier(
+    private val props: BillingProperties,
+    environment: Environment,
+) : AppleReceiptVerifier {
     private val roots: List<X509Certificate> by lazy { loadRoots(props.apple.rootCertPath) }
+
+    /** 프로파일은 런타임 중 안 바뀌므로 1회 계산. */
+    private val allowedEnvironments: Set<String> =
+        resolveAppleEnvironments(props.apple.environment, environment.matchesProfiles(PROD_PROFILE))
 
     override fun verify(jws: String): VerifiedReceipt {
         if (roots.isEmpty() || props.apple.bundleId.isBlank()) {
             throw AppStoreJwsVerifier.InvalidReceiptException("App Store 검증이 구성되지 않았습니다(루트 인증서/bundleId).")
         }
-        val payload = AppStoreJwsVerifier.verify(jws, roots, props.apple.bundleId)
-        return VerifiedReceipt(payload.productId, payload.transactionId)
+        val payload = AppStoreJwsVerifier.verify(jws, roots, props.apple.bundleId, allowedEnvironments)
+        return VerifiedReceipt(payload.productId, payload.transactionId, payload.expiresAt)
     }
 
     private fun loadRoots(path: String): List<X509Certificate> {
@@ -60,8 +90,12 @@ class PurchaseVerifier(
     /** 운영 프로파일 여부 — 검증 비활성 시 '통과'가 아니라 '거부'로 갈린다. 프로파일은 런타임 중 안 바뀌므로 1회 계산. */
     private val prodProfile: Boolean = environment.matchesProfiles(PROD_PROFILE)
 
-    /** 검증 실패 시 예외를 던져 구독 활성화를 막는다(fail-closed). */
-    fun verify(platform: String?, productId: String?, token: String?, tier: PlanTier) {
+    /**
+     * 검증 실패 시 예외를 던져 구독 활성화를 막는다(fail-closed).
+     * 성공하면 검증된 증빙을 돌려준다 — 호출부가 만료 시각 등을 구독에 반영할 수 있게.
+     * 검증 비활성(dev)일 때만 null(증빙 자체가 없으므로).
+     */
+    fun verify(platform: String?, productId: String?, token: String?, tier: PlanTier): VerifiedReceipt? {
         if (!props.verifyPurchases) {
             // application-prod.yml이 BILLING_VERIFY 기본값을 true로 올려두지만, 운영자가 실수로 false를
             // 주입해도 운영에서는 무검증 통과를 허용하지 않는다(2중 방어). 개발/로컬은 기존대로 통과.
@@ -70,7 +104,7 @@ class PurchaseVerifier(
                 throw ForbiddenException("결제 검증이 구성되지 않아 구독을 처리할 수 없습니다.", "BILLING_NOT_CONFIGURED")
             }
             log.warn("결제 증빙 검증 비활성(app.billing.verify-purchases=false) — 개발 전용. 운영은 반드시 true.")
-            return
+            return null
         }
         if (token.isNullOrBlank()) throw ForbiddenException("결제 증빙이 필요합니다.", "PURCHASE_PROOF_REQUIRED")
         val expected = props.productIdFor(tier) ?: throw BadRequestException("유효한 플랜이 아닙니다.", "INVALID_PLAN")
@@ -94,9 +128,6 @@ class PurchaseVerifier(
         if (!ledger.recordFirstUse(store, tier, receipt)) {
             throw ForbiddenException("이미 사용된 결제 증빙입니다.", "PURCHASE_ALREADY_USED")
         }
-    }
-
-    private companion object {
-        const val PROD_PROFILE = "prod"
+        return receipt
     }
 }
