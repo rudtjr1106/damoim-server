@@ -6,6 +6,7 @@ import com.damoim.server.security.RateLimitFilter
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.env.Environment
 import org.springframework.http.HttpStatus
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.invoke
@@ -20,9 +21,21 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
  * - 공개: 인증 엔드포인트·헬스체크만. 그 외 전부 인증 필요(deny-by-default)
  * - JWT 필터가 Bearer 토큰을 검증해 SecurityContext 세팅
  * - 미인증/권한없음은 JSON 401/403으로 응답(HTML 리다이렉트 없음)
+ * - API 문서(Swagger)는 비-prod에서만 공개(prod는 외부 노출이라 스펙 전체가 정찰 자료가 된다)
  */
 @Configuration
-class SecurityConfig {
+class SecurityConfig(environment: Environment) {
+
+    // prod 판정은 JwtTokenProvider와 동일한 방식(활성 프로파일).
+    private val isProd = environment.activeProfiles.contains("prod")
+
+    // 앱 앞단의 신뢰 프록시 홉 수. 운영자는 app.security.trusted-proxy-hops(또는 환경변수
+    // APP_SECURITY_TRUSTED_PROXY_HOPS)로 덮어쓸 수 있고, 미지정 시 코드 기본값을 쓴다.
+    private val trustedProxyHops = environment.getProperty(
+        "app.security.trusted-proxy-hops",
+        Int::class.javaObjectType,
+        RateLimitFilter.DEFAULT_TRUSTED_PROXY_HOPS,
+    )
 
     @Bean
     fun securityFilterChain(http: HttpSecurity, tokenProvider: JwtTokenProvider): SecurityFilterChain {
@@ -30,7 +43,7 @@ class SecurityConfig {
 
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter::class.java)
         // 레이트리밋은 JWT 필터 뒤(USER 키가 principal 사용). 미인증 경로는 IP로 폴백.
-        http.addFilterAfter(RateLimitFilter(), JwtAuthenticationFilter::class.java)
+        http.addFilterAfter(RateLimitFilter(trustedProxyHops), JwtAuthenticationFilter::class.java)
 
         http {
             csrf { disable() }
@@ -57,11 +70,14 @@ class SecurityConfig {
                 authorize("/actuator/health", permitAll)
                 authorize("/actuator/health/**", permitAll)
                 authorize("/error", permitAll)
-                // API 문서(OpenAPI/Swagger UI) — 공개
-                authorize("/swagger-ui.html", permitAll)
-                authorize("/swagger-ui/**", permitAll)
-                authorize("/v3/api-docs", permitAll)
-                authorize("/v3/api-docs/**", permitAll)
+                // API 문서(OpenAPI/Swagger UI) — 개발 편의용이라 비-prod에서만 공개한다.
+                // prod는 Tailscale Funnel로 외부에 열려 있어 무인증 공개 시 전 엔드포인트·스키마가
+                // 그대로 노출되므로 차단(익명 요청은 401, 인증 요청은 403 봉투로 떨어진다).
+                val docs = if (isProd) denyAll else permitAll
+                authorize("/swagger-ui.html", docs)
+                authorize("/swagger-ui/**", docs)
+                authorize("/v3/api-docs", docs)
+                authorize("/v3/api-docs/**", docs)
                 authorize(anyRequest, authenticated)
             }
 
